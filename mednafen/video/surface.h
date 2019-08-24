@@ -1,10 +1,18 @@
 #ifndef __MDFN_SURFACE_H
 #define __MDFN_SURFACE_H
 
+#ifdef PORTANDROID
+#define RED_SHIFT 0
+#define GREEN_SHIFT 8
+#define BLUE_SHIFT 16
+#define ALPHA_SHIFT 24
+#else
 #define RED_SHIFT 16
 #define GREEN_SHIFT 8
 #define BLUE_SHIFT 0
 #define ALPHA_SHIFT 24
+#endif
+
 #define MAKECOLOR(r, g, b, a) ((r << RED_SHIFT) | (g << GREEN_SHIFT) | (b << BLUE_SHIFT) | (a << ALPHA_SHIFT))
 
 struct MDFN_PaletteEntry
