@@ -1,10 +1,11 @@
-DEBUG = 0
+DEBUG = 1
 FRONTEND_SUPPORTS_RGB565 = 1
 HAVE_OPENGL = 0
 HAVE_VULKAN = 0
 HAVE_JIT = 0
 HAVE_CHD = 1
 HAVE_CDROM = 0
+HAVE_LIGHTREC = 1
 
 CORE_DIR := .
 HAVE_GRIFFIN = 0
@@ -579,6 +580,10 @@ endif
 
 ifeq ($(HAVE_JIT),1)
    LDFLAGS += -ljit
+endif
+
+ifeq ($(HAVE_LIGHTREC),1)
+   LDFLAGS += -llightrec
 endif
 
 CXXFLAGS += $(FLAGS)

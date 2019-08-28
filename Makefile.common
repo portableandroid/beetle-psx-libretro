@@ -144,6 +144,10 @@ ifeq ($(NEED_TREMOR), 1)
    FLAGS += -DNEED_TREMOR
 endif
 
+ifeq ($(HAVE_LIGHTREC), 1)
+   FLAGS += -DHAVE_LIGHTREC
+endif
+
 ifneq ($(HAVE_GRIFFIN), 1)
    SOURCES_CXX += $(CORE_EMU_DIR)/irq.cpp \
                   $(CORE_EMU_DIR)/timer.cpp \

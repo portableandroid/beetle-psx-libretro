@@ -60,6 +60,7 @@
 */
 
 #include "gte.h"
+#include <lightrec.h>
 
 #if NOT_LIBRETRO
 namespace MDFN_IEN_PSX
@@ -83,6 +84,10 @@ class PS_CPU
  INLINE void SetEventNT(const pscpu_timestamp_t next_event_ts_arg)
  {
   next_event_ts = next_event_ts_arg;
+ }
+
+ static INLINE pscpu_timestamp_t GetEventNT(void) {
+  return next_event_ts;
  }
 
  pscpu_timestamp_t Run(pscpu_timestamp_t timestamp_in, bool BIOSPrintMode, bool ILHMode);
@@ -125,7 +130,7 @@ class PS_CPU
  uint32 BACKED_LDValue;
  uint32 LDAbsorb;
 
- pscpu_timestamp_t next_event_ts;
+ static pscpu_timestamp_t next_event_ts;
  pscpu_timestamp_t gte_ts_done;
  pscpu_timestamp_t muldiv_ts_done;
 
@@ -148,7 +153,7 @@ class PS_CPU
   CP0REG_PRID = 15		// Product ID
  };
 
- struct
+ static struct CP0
  {
   union
   {
@@ -275,6 +280,31 @@ class PS_CPU
  private:
  void (*CPUHook)(const pscpu_timestamp_t timestamp, uint32 pc);
  void (*ADDBT)(uint32 from, uint32 to, bool exception);
+ int lightrec_plugin_init();
+ void lightrec_plugin_clear(uint32 addr, uint32 size);
+ void lightrec_plugin_reset();
+ void lightrec_plugin_shutdown();
+ int32 lightrec_plugin_execute(int32 timestamp);
+ void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
+ static uint32 cop_mfc_cfc(struct lightrec_state *state, uint8 cp, uint8 reg, bool cfc);
+ static void cop_mtc_ctc(struct lightrec_state *state, uint8 cp, uint8 reg, uint32 value, bool ctc);
+ static uint32 cop_cfc(lightrec_state*, uint8);
+ static uint32 cop_mfc(lightrec_state*, uint8);
+ static uint32 cop2_cfc(lightrec_state*, uint8);
+ static uint32 cop2_mfc(lightrec_state*, uint8);
+ static void cop_ctc(lightrec_state*, uint8, uint32);
+ static void cop_mtc(lightrec_state*, uint8, uint32);
+ static void cop2_ctc(lightrec_state*, uint8, uint32);
+ static void cop2_mtc(lightrec_state*, uint8, uint32);
+ static struct lightrec_ops ops;
+ static struct lightrec_mem_map_ops hw_regs_ops;
+ static struct lightrec_mem_map lightrec_map[];
+ static void hw_write_byte(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint8 val);
+ static void hw_write_half(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint16 val);
+ static void hw_write_word(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint32 val);
+ static uint8 hw_read_byte(struct lightrec_state *state,const struct opcode *op, uint32 mem);
+ static uint16 hw_read_half(struct lightrec_state *state,const struct opcode *op, uint32 mem);
+ static uint32 hw_read_word(struct lightrec_state *state,const struct opcode *op, uint32 mem);
 };
 
 #if NOT_LIBRETRO

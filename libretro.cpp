@@ -346,7 +346,7 @@ PS_SPU *PSX_SPU = NULL;
 PS_CDC *PSX_CDC = NULL;
 FrontIO *PSX_FIO = NULL;
 
-static MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM = NULL;
+MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM = NULL;
 static MultiAccessSizeMem<65536, uint32, false> *PIOMem = NULL;
 
 MultiAccessSizeMem<2048 * 1024, uint32, false> MainRAM;
