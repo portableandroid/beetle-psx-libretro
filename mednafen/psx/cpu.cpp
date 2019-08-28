@@ -42,6 +42,8 @@
 
 extern bool psx_gte_overclock;
 pscpu_timestamp_t PS_CPU::next_event_ts;
+uint32 PS_CPU::IPCache;
+bool PS_CPU::Halted;
 struct PS_CPU::CP0 PS_CPU::CP0;
 
 #if 0
@@ -3115,13 +3117,15 @@ void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
 			/* Those registers are read-only */
 			break;
 		case 12: /* Status */
-			CP0.SR = value;
+			CP0.SR = value & ~( (0x3 << 26) | (0x3 << 23) | (0x3 << 6));
+			RecalcIPCache();
 			lightrec_set_exit_flags(state,
 					LIGHTREC_EXIT_CHECK_INTERRUPT);
 			break;
 		case 13: /* Cause */
 			CP0.CAUSE &= ~0x0300;
 			CP0.CAUSE |= value & 0x0300;
+			RecalcIPCache();
 			lightrec_set_exit_flags(state,
 					LIGHTREC_EXIT_CHECK_INTERRUPT);
 			break;
@@ -3178,8 +3182,6 @@ static void cop2_op(struct lightrec_state *state, u32 func){
                 GTE_Instruction(func);
 }
 
-struct lightrec_ops PS_CPU::ops;
-
 void PS_CPU::hw_write_byte(struct lightrec_state *state,
 		const struct opcode *op, u32 mem, u8 val)
 {
@@ -3203,20 +3205,15 @@ void PS_CPU::hw_write_half(struct lightrec_state *state,
 void PS_CPU::hw_write_word(struct lightrec_state *state,
 		const struct opcode *op, u32 mem, u32 val)
 {
-	u32 cycles_block_start = lightrec_current_cycle_count(state);
-	pscpu_timestamp_t cycles = lightrec_current_cycle_count(state);
-	u32 bcycles = cycles;
+	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
-	PSX_MemWrite32(cycles, mem, val);
+	PSX_MemWrite32(timestamp, mem, val);
 
 	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
-	if (unlikely(cycles_block_start > cycles)) {
-		/* Calling psxHwWrite32 might update psxRegs.cycle - Make sure
-		 * here that state->current_cycle stays in sync. */
-		lightrec_reset_cycle_count(state,
-				bcycles - (cycles - cycles_block_start));
-	}
+	/* Calling psxHwWrite32 might update psxRegs.cycle - Make sure
+	 * here that state->current_cycle stays in sync. */
+	lightrec_reset_cycle_count(state, timestamp);
 }
 
 u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
@@ -3322,6 +3319,23 @@ struct lightrec_mem_map PS_CPU::lightrec_map[] = {
 	},
 };
 
+struct lightrec_ops PS_CPU::ops = {
+	.cop0_ops = {
+		.mfc = cop_mfc,
+		.cfc = cop_cfc,
+		.mtc = cop_mtc,
+		.ctc = cop_ctc,
+		.op = cop_op,
+	},
+	.cop2_ops = {
+		.mfc = cop2_mfc,
+		.cfc = cop2_cfc,
+		.mtc = cop2_mtc,
+		.ctc = cop2_ctc,
+		.op = cop2_op,
+	},
+};
+
 int PS_CPU::lightrec_plugin_init()
 {
 
@@ -3333,17 +3347,6 @@ int PS_CPU::lightrec_plugin_init()
 	lightrec_map[PSX_MAP_BIOS].address = psxR;
 	lightrec_map[PSX_MAP_SCRATCH_PAD].address = psxH;
 	lightrec_map[PSX_MAP_PARALLEL_PORT].address = psxM + 0x200000;
-
-	ops.cop0_ops.mfc = cop_mfc;
-	ops.cop0_ops.cfc = cop_cfc;
-	ops.cop0_ops.mtc = cop_mtc;
-	ops.cop0_ops.ctc = cop_ctc;
-	ops.cop0_ops.op = cop_op;
-	ops.cop2_ops.mfc = cop2_mfc;
-	ops.cop2_ops.cfc = cop2_cfc;
-	ops.cop2_ops.mtc = cop2_mtc;
-	ops.cop2_ops.ctc = cop2_ctc;
-	ops.cop2_ops.op = cop2_op;
 
 	lightrec_state = lightrec_init(name,
 			lightrec_map, ARRAY_SIZE(lightrec_map),
@@ -3433,42 +3436,50 @@ int32_t PS_CPU::lightrec_plugin_execute(int32_t timestamp)
 
 	BACKING_TO_ACTIVE;
 
+	u32 old_pc = PC;
+	u32 flags;
+
 	do {
-		u32 flags;
+		do {
+			lightrec_restore_registers(lightrec_state, GPR);
+			lightrec_reset_cycle_count(lightrec_state, timestamp);
 
-		lightrec_restore_registers(lightrec_state, GPR);
-		lightrec_reset_cycle_count(lightrec_state, timestamp);
+			new_PC = lightrec_execute(lightrec_state,
+					PC, next_event_ts);
 
-		new_PC = lightrec_execute(lightrec_state,
-				PC, next_event_ts);
-		timestamp = lightrec_current_cycle_count(
-				lightrec_state);
+			timestamp = lightrec_current_cycle_count(
+					lightrec_state);
 
-		lightrec_dump_registers(lightrec_state, GPR);
+			lightrec_dump_registers(lightrec_state, GPR);
 
-		flags = lightrec_exit_flags(lightrec_state);
+			flags = lightrec_exit_flags(lightrec_state);
 
-		if (flags & LIGHTREC_EXIT_SEGFAULT) {
-			fprintf(stderr, "Exiting at cycle 0x%08x\n",
-					timestamp);
-			exit(1);
-		}
+			if (flags & LIGHTREC_EXIT_SEGFAULT) {
+				fprintf(stderr, "Exiting at cycle 0x%08x\n",
+						timestamp);
+				exit(1);
+			}
 
-		if (flags & LIGHTREC_EXIT_SYSCALL)
-			new_PC = Exception(EXCEPTION_SYSCALL, PC, new_PC, 0);
+			if (flags & LIGHTREC_EXIT_SYSCALL)
+				new_PC = Exception(EXCEPTION_SYSCALL, new_PC, new_PC, 0);
+
+			if (flags & LIGHTREC_EXIT_CHECK_INTERRUPT) {
+				PSX_EventHandler(timestamp);
+			}
+
+			PC = new_PC;
+		} while (timestamp < next_event_ts);
 
 		if (lightrec_debug && timestamp >= lightrec_begin_cycles
-			&& new_PC != PC){
+			&& PC != old_pc){
 			print_for_big_ass_debugger(timestamp, PC);
 		}
-		if ((CP0.CAUSE & CP0.SR & 0x300) &&
-				(CP0.SR & 0x1)) {
+
+		if (IPCache == 0x80) {
 			/* Handle software interrupts */
 			new_PC = Exception(EXCEPTION_INT, PC, new_PC, 0);
 		}
 
-		PC = new_PC;
-		new_PC = new_PC+4;
 	} while(MDFN_LIKELY(PSX_EventHandler(timestamp)));
 
 	ACTIVE_TO_BACKING;
@@ -3489,8 +3500,6 @@ void PS_CPU::lightrec_plugin_shutdown(void)
 
 void PS_CPU::lightrec_plugin_reset(void)
 {
-	lightrec_plugin_shutdown();
-	lightrec_plugin_init();
 }
 #endif
 

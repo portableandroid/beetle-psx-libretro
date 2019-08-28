@@ -107,24 +107,27 @@ class PS_CPU
 
  private:
 
+#ifdef HAVE_LIGHTREC
+ uint32 GPR[34];	//Lightrec uses LO = GPR[32] and HI = GPR[33]
+#else
  uint32 GPR[32 + 1];	// GPR[32] Used as dummy in load delay simulation(indexing past the end of real GPR)
+#endif
 
  uint32 LO;
  uint32 HI;
 
-
  uint32 BACKED_PC;
  uint32 BACKED_new_PC;
 
- uint32 IPCache;
+ static uint32 IPCache;
  uint8 BDBT;
 
  uint8 ReadAbsorb[0x20 + 1];
  uint8 ReadAbsorbWhich;
  uint8 ReadFudge;
 
- void RecalcIPCache(void);
- bool Halted;
+ static void RecalcIPCache(void);
+ static bool Halted;
 
  uint32 BACKED_LDWhich;
  uint32 BACKED_LDValue;
