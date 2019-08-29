@@ -289,12 +289,11 @@ class PS_CPU
  void lightrec_plugin_shutdown();
  int32 lightrec_plugin_execute(int32 timestamp);
  void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
- static uint32 cop_mfc_cfc(struct lightrec_state *state, uint8 cp, uint8 reg, bool cfc);
- static void cop_mtc_ctc(struct lightrec_state *state, uint8 cp, uint8 reg, uint32 value, bool ctc);
  static uint32 cop_cfc(lightrec_state*, uint8);
  static uint32 cop_mfc(lightrec_state*, uint8);
  static uint32 cop2_cfc(lightrec_state*, uint8);
  static uint32 cop2_mfc(lightrec_state*, uint8);
+ static void cop_mtc_ctc(struct lightrec_state *state, uint8 reg, uint32 value);
  static void cop_ctc(lightrec_state*, uint8, uint32);
  static void cop_mtc(lightrec_state*, uint8, uint32);
  static void cop2_ctc(lightrec_state*, uint8, uint32);

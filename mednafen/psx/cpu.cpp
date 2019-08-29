@@ -3067,48 +3067,30 @@ bool lightrec_debug = false;
 int lightrec_very_debug = 0;
 u32 lightrec_begin_cycles = 0;
 
-u32 PS_CPU::cop_mfc_cfc(struct lightrec_state *state, u8 cp, u8 reg, bool cfc)
-{
-	switch (cp) {
-	case 0:
-		return CP0.Regs[reg];
-	case 2:
-		if (cfc)
-			return GTE_ReadCR(reg);
-		else
-			return GTE_ReadDR(reg);
-	default:
-		fprintf(stderr, "Access to non-existing CP %i\n", cp);
-		return 0;
-	}
-}
-
 u32 PS_CPU::cop_mfc(struct lightrec_state *state, u8 reg)
 {
-	return cop_mfc_cfc(state, 0, reg, false);
+	return CP0.Regs[reg];
 }
 
 u32 PS_CPU::cop_cfc(struct lightrec_state *state, u8 reg)
 {
-	return cop_mfc_cfc(state, 0, reg, true);
+	return CP0.Regs[reg];
 }
 
 u32 PS_CPU::cop2_mfc(struct lightrec_state *state, u8 reg)
 {
-	return cop_mfc_cfc(state, 2, reg, false);
+	return GTE_ReadDR(reg);
 }
 
 u32 PS_CPU::cop2_cfc(struct lightrec_state *state, u8 reg)
 {
-	return cop_mfc_cfc(state, 2, reg, true);
+	return GTE_ReadCR(reg);
 }
 
 void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
-		u8 cp, u8 reg, u32 value, bool ctc)
+		u8 reg, u32 value)
 {
-	switch (cp) {
-	case 0:
-		switch (reg) {
+	switch (reg) {
 		case 1:
 		case 4:
 		case 8:
@@ -3132,37 +3114,27 @@ void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
 		default:
 			CP0.Regs[reg] = value;
 			break;
-		}
-		break;
-	case 2:
-		if (ctc)
-			GTE_WriteCR(reg, value);
-		else
-			GTE_WriteDR(reg, value);
-		break;
-	default:
-		break;
 	}
 }
 
 void PS_CPU::cop_mtc(struct lightrec_state *state, u8 reg, u32 value)
 {
-	cop_mtc_ctc(state, 0, reg, value, false);
+	cop_mtc_ctc(state, reg, value);
 }
 
 void PS_CPU::cop_ctc(struct lightrec_state *state, u8 reg, u32 value)
 {
-	cop_mtc_ctc(state, 0, reg, value, true);
+	cop_mtc_ctc(state, reg, value);
 }
 
 void PS_CPU::cop2_mtc(struct lightrec_state *state, u8 reg, u32 value)
 {
-	cop_mtc_ctc(state, 2, reg, value, false);
+	GTE_WriteDR(reg, value);
 }
 
 void PS_CPU::cop2_ctc(struct lightrec_state *state, u8 reg, u32 value)
 {
-	cop_mtc_ctc(state, 2, reg, value, true);
+	GTE_WriteCR(reg, value);
 }
 
 static bool cp2_ops[0x40] = {0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,
