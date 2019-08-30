@@ -3161,7 +3161,8 @@ void PS_CPU::hw_write_byte(struct lightrec_state *state,
 
 	PSX_MemWrite8(timestamp, mem, val);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 }
 
 void PS_CPU::hw_write_half(struct lightrec_state *state,
@@ -3171,7 +3172,8 @@ void PS_CPU::hw_write_half(struct lightrec_state *state,
 
 	PSX_MemWrite16(timestamp, mem, val);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 }
 
 void PS_CPU::hw_write_word(struct lightrec_state *state,
@@ -3181,7 +3183,8 @@ void PS_CPU::hw_write_word(struct lightrec_state *state,
 
 	PSX_MemWrite32(timestamp, mem, val);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	/* Calling psxHwWrite32 might update psxRegs.cycle - Make sure
 	 * here that state->current_cycle stays in sync. */
@@ -3193,11 +3196,12 @@ u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
 {
 	u8 val;
 
-	pscpu_timestamp_t cycle = lightrec_current_cycle_count(state);
+	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
-	val = PSX_MemRead8(cycle,mem);
+	val = PSX_MemRead8(timestamp,mem);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
@@ -3207,11 +3211,12 @@ u16 PS_CPU::hw_read_half(struct lightrec_state *state,
 {
 	u16 val;
 
-	pscpu_timestamp_t cycle = lightrec_current_cycle_count(state);
+	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
-	val = PSX_MemRead16(cycle, mem);
+	val = PSX_MemRead16(timestamp, mem);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
@@ -3221,11 +3226,12 @@ u32 PS_CPU::hw_read_word(struct lightrec_state *state,
 {
 	u32 val;
 
-	pscpu_timestamp_t cycle = lightrec_current_cycle_count(state);
+	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
-	val = PSX_MemRead32(cycle, mem);
+	val = PSX_MemRead32(timestamp, mem);
 
-	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	if (timestamp >= next_event_ts)
+		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
