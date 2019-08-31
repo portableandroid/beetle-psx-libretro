@@ -665,9 +665,10 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
 
  BACKING_TO_ACTIVE;
 
+ u32 old_pc = PC;
+
  do
  {
-  u32 old_pc = PC;
   //printf("Running: %d %d\n", timestamp, next_event_ts);
   while(MDFN_LIKELY(timestamp < next_event_ts))
   {
@@ -3086,6 +3087,8 @@ void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 	printf(" CP0 0x%08x",
 		hash_calculate(&CP0.Regs,
 			sizeof(CP0.Regs)));
+
+#ifndef HAVE_LIGHTREC
 /*
 	if (lightrec_very_debug)
 		for (i = 0; i < 33; i++)
@@ -3093,6 +3096,19 @@ void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 	else
 */		printf(" GPR 0x%08x", hash_calculate(&GPR,
 					sizeof(GPR)));
+#else
+	u32 GPRC[34];
+	memcpy(GPRC,GPR,32*sizeof(u32));
+	GPRC[32] = LO;
+	GPRC[33] = HI;
+/*
+	if (lightrec_very_debug)
+		for (i = 0; i < 33; i++)
+			printf(" GPR[%i] 0x%08x", i, GPRC[i]);
+	else
+*/		printf(" GPR 0x%08x", hash_calculate(&GPRC,
+					sizeof(GPRC)));
+#endif
 	printf("\n");
 }
 
