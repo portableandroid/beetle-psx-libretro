@@ -283,12 +283,13 @@ class PS_CPU
  private:
  void (*CPUHook)(const pscpu_timestamp_t timestamp, uint32 pc);
  void (*ADDBT)(uint32 from, uint32 to, bool exception);
+ void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
+#ifdef HAVE_LIGHTREC
  int lightrec_plugin_init();
  void lightrec_plugin_clear(uint32 addr, uint32 size);
  void lightrec_plugin_reset();
  void lightrec_plugin_shutdown();
  int32 lightrec_plugin_execute(int32 timestamp);
- void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
  static uint32 cop_cfc(lightrec_state*, uint8);
  static uint32 cop_mfc(lightrec_state*, uint8);
  static uint32 cop2_cfc(lightrec_state*, uint8);
@@ -307,6 +308,7 @@ class PS_CPU
  static uint8 hw_read_byte(struct lightrec_state *state,const struct opcode *op, uint32 mem);
  static uint16 hw_read_half(struct lightrec_state *state,const struct opcode *op, uint32 mem);
  static uint32 hw_read_word(struct lightrec_state *state,const struct opcode *op, uint32 mem);
+#endif
 };
 
 #if NOT_LIBRETRO

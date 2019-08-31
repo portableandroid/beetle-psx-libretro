@@ -667,6 +667,7 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
 
  do
  {
+  u32 old_pc = PC;
   //printf("Running: %d %d\n", timestamp, next_event_ts);
   while(MDFN_LIKELY(timestamp < next_event_ts))
   {
@@ -2655,6 +2656,11 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
 
    //printf("\n");
   }
+  if (timestamp >= 0 && PC != old_pc){
+#ifdef DEBUG
+     print_for_big_ass_debugger(timestamp, PC);
+#endif
+  }
  } while(MDFN_LIKELY(PSX_EventHandler(timestamp)));
 
  if(gte_ts_done > 0)
@@ -3041,6 +3047,55 @@ void PS_CPU::CheckBreakpoints(void (*callback)(bool write, uint32 address, unsig
  }
 }
 
+u32 hash_calculate(const void *buffer, u32 count)
+{
+	unsigned int i;
+	u32 *data = (u32 *) buffer;
+	u32 hash = 0xffffffff;
+
+	count /= 4;
+	for(i = 0; i < count; ++i) {
+		hash += data[i];
+		hash += (hash << 10);
+		hash ^= (hash >> 6);
+	}
+
+	hash += (hash << 3);
+	hash ^= (hash >> 11);
+	hash += (hash << 15);
+	return hash;
+}
+
+void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
+{
+	uint8_t *psxM = (uint8_t *) MainRAM.data8;
+	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
+	uint8_t *psxH = (uint8_t *) ScratchRAM.data8;
+
+	unsigned int i;
+	//extern int lightrec_very_debug;
+
+	printf("CYCLE 0x%08x PC 0x%08x", timestamp, PC);
+/*
+	if (lightrec_very_debug)
+		printf(" RAM 0x%08x SCRATCH 0x%08x HW 0x%08x",
+			hash_calculate(psxM, 0x200000),
+			hash_calculate(psxH, 0x400),
+			hash_calculate(psxH + 0x1000, 0x2000));
+*/
+	printf(" CP0 0x%08x",
+		hash_calculate(&CP0.Regs,
+			sizeof(CP0.Regs)));
+/*
+	if (lightrec_very_debug)
+		for (i = 0; i < 33; i++)
+			printf(" GPR[%i] 0x%08x", i, GPR[i]);
+	else
+*/		printf(" GPR 0x%08x", hash_calculate(&GPR,
+					sizeof(GPR)));
+	printf("\n");
+}
+
 #ifdef HAVE_LIGHTREC
 #define ARRAY_SIZE(x) (sizeof(x) ? sizeof(x) / sizeof((x)[0]) : 0)
 
@@ -3361,57 +3416,6 @@ int PS_CPU::lightrec_plugin_init()
 	return 0;
 }
 
-//extern void intExecuteBlock(void);
-
-u32 hash_calculate(const void *buffer, u32 count)
-{
-	unsigned int i;
-	u32 *data = (u32 *) buffer;
-	u32 hash = 0xffffffff;
-
-	count /= 4;
-	for(i = 0; i < count; ++i) {
-		hash += data[i];
-		hash += (hash << 10);
-		hash ^= (hash >> 6);
-	}
-
-	hash += (hash << 3);
-	hash ^= (hash >> 11);
-	hash += (hash << 15);
-	return hash;
-}
-
-void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
-{
-	uint8_t *psxM = (uint8_t *) MainRAM.data8;
-	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
-	uint8_t *psxH = (uint8_t *) ScratchRAM.data8;
-
-	unsigned int i;
-	extern int lightrec_very_debug;
-
-	printf("CYCLE 0x%08x PC 0x%08x", timestamp, PC);
-
-	if (lightrec_very_debug)
-		printf(" RAM 0x%08x SCRATCH 0x%08x HW 0x%08x",
-			hash_calculate(psxM, 0x200000),
-			hash_calculate(psxH, 0x400),
-			hash_calculate(psxH + 0x1000, 0x2000));
-
-	printf(" CP0 0x%08x",
-		hash_calculate(&CP0.Regs,
-			sizeof(CP0.Regs)));
-
-	if (lightrec_very_debug)
-		for (i = 0; i < 33; i++)
-			printf(" GPR[%i] 0x%08x", i, GPR[i]);
-	else
-		printf(" GPR 0x%08x", hash_calculate(&GPR,
-					sizeof(GPR)));
-	printf("\n");
-}
-
 int32_t PS_CPU::lightrec_plugin_execute(int32_t timestamp)
 {
 	uint32_t PC;
@@ -3422,50 +3426,42 @@ int32_t PS_CPU::lightrec_plugin_execute(int32_t timestamp)
 
 	BACKING_TO_ACTIVE;
 
-	u32 old_pc = PC;
 	u32 flags;
+	u32 old_pc = PC;
 
 	do {
-		do {
-			lightrec_restore_registers(lightrec_state, GPR);
-			lightrec_reset_cycle_count(lightrec_state, timestamp);
+		old_pc = PC;
+		lightrec_restore_registers(lightrec_state, GPR);
+		lightrec_reset_cycle_count(lightrec_state, timestamp);
 
-			new_PC = lightrec_execute(lightrec_state,
-					PC, next_event_ts);
+		PC = lightrec_execute(lightrec_state,
+				PC, next_event_ts);
 
-			timestamp = lightrec_current_cycle_count(
-					lightrec_state);
+		timestamp = lightrec_current_cycle_count(
+				lightrec_state);
 
-			lightrec_dump_registers(lightrec_state, GPR);
+		lightrec_dump_registers(lightrec_state, GPR);
 
-			flags = lightrec_exit_flags(lightrec_state);
+		flags = lightrec_exit_flags(lightrec_state);
 
-			if (flags & LIGHTREC_EXIT_SEGFAULT) {
-				fprintf(stderr, "Exiting at cycle 0x%08x\n",
-						timestamp);
-				exit(1);
-			}
+		if (flags & LIGHTREC_EXIT_SEGFAULT) {
+			fprintf(stderr, "Exiting at cycle 0x%08x\n",
+					timestamp);
+			exit(1);
+		}
 
-			if (flags & LIGHTREC_EXIT_SYSCALL)
-				new_PC = Exception(EXCEPTION_SYSCALL, new_PC, new_PC, 0);
+		if (flags & LIGHTREC_EXIT_SYSCALL)
+			PC = Exception(EXCEPTION_SYSCALL, PC, PC, 0);
 
-			if (flags & LIGHTREC_EXIT_CHECK_INTERRUPT) {
-				PSX_EventHandler(timestamp);
-			}
-
-			PC = new_PC;
-		} while (timestamp < next_event_ts);
+		if ((CP0.SR & CP0.CAUSE & 0xFF00) && (CP0.SR & 1)) {
+			/* Handle software interrupts */
+			PC = Exception(EXCEPTION_INT, PC, PC, 0);
+		}
 
 		if (lightrec_debug && timestamp >= lightrec_begin_cycles
 			&& PC != old_pc){
 			print_for_big_ass_debugger(timestamp, PC);
 		}
-
-		if (IPCache == 0x80) {
-			/* Handle software interrupts */
-			new_PC = Exception(EXCEPTION_INT, PC, new_PC, 0);
-		}
-
 	} while(MDFN_LIKELY(PSX_EventHandler(timestamp)));
 
 	ACTIVE_TO_BACKING;
