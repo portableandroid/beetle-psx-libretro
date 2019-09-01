@@ -3125,8 +3125,6 @@ void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 
 static struct lightrec_state *lightrec_state;
 
-static char cache_control[512];
-
 static char *name = (char*) "beetle_psx_libretro";
 
 bool use_lightrec_interpreter = false;
@@ -3353,9 +3351,9 @@ struct lightrec_mem_map PS_CPU::lightrec_map[] = {
 	},
 	[PSX_MAP_CACHE_CONTROL] = {
 		/* Cache control */
-		.pc = 0x5ffe0000,
-		.length = sizeof(cache_control),
-		.address = &cache_control,
+		.pc = 0x5ffe0130,
+		.length = 4,
+		.ops = &hw_regs_ops,
 	},
 
 	/* Mirrors of the kernel/user memory */
