@@ -136,7 +136,7 @@ else ifneq (,$(findstring ios,$(platform)))
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -framework OpenGLES
    endif
-   
+
    CC = cc -arch $(iarch) -isysroot $(IOSSDK)
    CXX = c++ -arch $(iarch) -isysroot $(IOSSDK)
    IPHONEMINVER :=
@@ -149,6 +149,16 @@ else ifneq (,$(findstring ios,$(platform)))
    FLAGS   += $(IPHONEMINVER)
    CC      += $(IPHONEMINVER)
    CXX     += $(IPHONEMINVER)
+
+# tvOS
+else ifeq ($(platform), tvos-arm64)
+   TARGET := $(TARGET_NAME)_libretro_tvos.dylib
+   fpic := -fPIC
+   SHARED := -dynamiclib
+
+ifeq ($(IOSSDK),)
+   IOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
+endif
 
 # QNX
 else ifeq ($(platform), qnx)
