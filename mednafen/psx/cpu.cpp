@@ -3426,7 +3426,7 @@ int PS_CPU::lightrec_plugin_init()
 			(uintptr_t) psxR,
 			(uintptr_t) psxH);
 
-	signal(SIGPIPE, exit);
+	//signal(SIGPIPE, exit);
 	return 0;
 }
 
