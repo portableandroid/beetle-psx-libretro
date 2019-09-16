@@ -105,6 +105,11 @@ typedef signed long long	jit_int64_t;
 typedef unsigned long long	jit_uint64_t;
 typedef jit_int32_t		jit_word_t;
 typedef jit_uint32_t		jit_uword_t;
+#elseif defined(__WINDOWS)
+typedef signed long long	jit_int64_t;
+typedef unsigned long long	jit_uint64_t;
+typedef jit_int64_t		jit_word_t;
+typedef jit_uint64_t		jit_uword_t;
 #else
 typedef signed long		jit_int64_t;
 typedef unsigned long		jit_uint64_t;
