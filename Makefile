@@ -1,4 +1,4 @@
-DEBUG = 1
+DEBUG = 0
 FRONTEND_SUPPORTS_RGB565 = 1
 HAVE_OPENGL = 0
 HAVE_VULKAN = 0
@@ -590,10 +590,6 @@ endif
 
 ifeq ($(HAVE_JIT),1)
    LDFLAGS += -ljit
-endif
-
-ifeq ($(HAVE_LIGHTREC),1)
-   LDFLAGS += -llightrec
 endif
 
 CXXFLAGS += $(FLAGS)
