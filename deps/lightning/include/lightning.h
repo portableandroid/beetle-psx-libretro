@@ -105,7 +105,7 @@ typedef signed long long	jit_int64_t;
 typedef unsigned long long	jit_uint64_t;
 typedef jit_int32_t		jit_word_t;
 typedef jit_uint32_t		jit_uword_t;
-#elseif defined(__MINGW64__)
+#elif defined(__MINGW64__)
 typedef signed long long	jit_int64_t;
 typedef unsigned long long	jit_uint64_t;
 typedef jit_int64_t		jit_word_t;
