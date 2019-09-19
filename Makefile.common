@@ -147,6 +147,11 @@ endif
 ifeq ($(HAVE_LIGHTREC), 1)
    FLAGS += -DHAVE_LIGHTREC \
             -DHAVE_FFSL
+   ifeq (,$(findstring win,$(platform)))
+       FLAGS += -DENABLE_FIRST_PASS=0 -DENABLE_THREADED_COMPILER=0
+   else
+       FLAGS += -DENABLE_FIRST_PASS=1 -DENABLE_THREADED_COMPILER=1
+   endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
                -I$(DEPS_DIR)/lightrec
@@ -362,7 +367,9 @@ ifeq ($(HAVE_LIGHTREC), 1)
                   $(DEPS_DIR)/lightrec/lightrec.c \
                   $(DEPS_DIR)/lightrec/memmanager.c \
                   $(DEPS_DIR)/lightrec/optimizer.c \
-                  $(DEPS_DIR)/lightrec/recompiler.c \
                   $(DEPS_DIR)/lightrec/regcache.c
+   ifneq (,$(findstring win,$(platform)))
+       SOURCES_C +=   $(DEPS_DIR)/lightrec/recompiler.c
+   endif
 
 endif ##ifeq ($(HAVE_LIGHTREC), 1)
