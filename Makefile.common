@@ -360,6 +360,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
                   $(DEPS_DIR)/lightrec/emitter.c \
                   $(DEPS_DIR)/lightrec/interpreter.c \
                   $(DEPS_DIR)/lightrec/lightrec.c \
+                  $(DEPS_DIR)/lightrec/memmanager.c \
                   $(DEPS_DIR)/lightrec/optimizer.c \
                   $(DEPS_DIR)/lightrec/recompiler.c \
                   $(DEPS_DIR)/lightrec/regcache.c

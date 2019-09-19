@@ -3224,7 +3224,7 @@ static void cop2_op(struct lightrec_state *state, u32 func){
 }
 
 void PS_CPU::hw_write_byte(struct lightrec_state *state,
-		const struct opcode *op, u32 mem, u8 val)
+		u32 mem, u8 val)
 {
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
@@ -3235,7 +3235,7 @@ void PS_CPU::hw_write_byte(struct lightrec_state *state,
 }
 
 void PS_CPU::hw_write_half(struct lightrec_state *state,
-		const struct opcode *op, u32 mem, u16 val)
+		u32 mem, u16 val)
 {
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
@@ -3246,7 +3246,7 @@ void PS_CPU::hw_write_half(struct lightrec_state *state,
 }
 
 void PS_CPU::hw_write_word(struct lightrec_state *state,
-		const struct opcode *op, u32 mem, u32 val)
+		u32 mem, u32 val)
 {
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
@@ -3257,7 +3257,7 @@ void PS_CPU::hw_write_word(struct lightrec_state *state,
 }
 
 u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
-		const struct opcode *op, u32 mem)
+		u32 mem)
 {
 	u8 val;
 
@@ -3276,7 +3276,7 @@ u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
 }
 
 u16 PS_CPU::hw_read_half(struct lightrec_state *state,
-		const struct opcode *op, u32 mem)
+		u32 mem)
 {
 	u16 val;
 
@@ -3295,7 +3295,7 @@ u16 PS_CPU::hw_read_half(struct lightrec_state *state,
 }
 
 u32 PS_CPU::hw_read_word(struct lightrec_state *state,
-		const struct opcode *op, u32 mem)
+		u32 mem)
 {
 	u32 val;
 

@@ -302,12 +302,12 @@ class PS_CPU
  static struct lightrec_ops ops;
  static struct lightrec_mem_map_ops hw_regs_ops;
  static struct lightrec_mem_map lightrec_map[];
- static void hw_write_byte(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint8 val);
- static void hw_write_half(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint16 val);
- static void hw_write_word(struct lightrec_state *state,const struct opcode *op, uint32 mem, uint32 val);
- static uint8 hw_read_byte(struct lightrec_state *state,const struct opcode *op, uint32 mem);
- static uint16 hw_read_half(struct lightrec_state *state,const struct opcode *op, uint32 mem);
- static uint32 hw_read_word(struct lightrec_state *state,const struct opcode *op, uint32 mem);
+ static void hw_write_byte(struct lightrec_state *state, uint32 mem, uint8 val);
+ static void hw_write_half(struct lightrec_state *state, uint32 mem, uint16 val);
+ static void hw_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint8 hw_read_byte(struct lightrec_state *state, uint32 mem);
+ static uint16 hw_read_half(struct lightrec_state *state, uint32 mem);
+ static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
 #endif
 };
 
