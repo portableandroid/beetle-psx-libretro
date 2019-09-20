@@ -148,9 +148,12 @@ ifeq ($(HAVE_LIGHTREC), 1)
    FLAGS += -DHAVE_LIGHTREC \
             -DHAVE_FFSL
    ifneq (,$(findstring win,$(platform)))
-       FLAGS += -DENABLE_FIRST_PASS=0 -DENABLE_THREADED_COMPILER=0
+       FLAGS += -DENABLE_FIRST_PASS=0 \
+                -DENABLE_THREADED_COMPILER=0 \
+                -DLIGHTREC_STATIC=1
    else
-       FLAGS += -DENABLE_FIRST_PASS=1 -DENABLE_THREADED_COMPILER=1
+       FLAGS += -DENABLE_FIRST_PASS=1 \
+                -DENABLE_THREADED_COMPILER=1
    endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
