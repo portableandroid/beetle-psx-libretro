@@ -137,7 +137,7 @@ class PS_CPU
  pscpu_timestamp_t gte_ts_done;
  pscpu_timestamp_t muldiv_ts_done;
 
- uint32 BIU;
+ static uint32 BIU;
 
  uint32 addr_mask[8];
 
@@ -301,6 +301,7 @@ class PS_CPU
  static void cop2_mtc(lightrec_state*, uint8, uint32);
  static struct lightrec_ops ops;
  static struct lightrec_mem_map_ops hw_regs_ops;
+ static struct lightrec_mem_map_ops cache_ctrl_ops;
  static struct lightrec_mem_map lightrec_map[];
  static void hw_write_byte(struct lightrec_state *state, uint32 mem, uint8 val);
  static void hw_write_half(struct lightrec_state *state, uint32 mem, uint16 val);
@@ -308,6 +309,8 @@ class PS_CPU
  static uint8 hw_read_byte(struct lightrec_state *state, uint32 mem);
  static uint16 hw_read_half(struct lightrec_state *state, uint32 mem);
  static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
+ static void cache_ctrl_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint32 cache_ctrl_read_word(struct lightrec_state *state, uint32 mem);
 #endif
 };
 

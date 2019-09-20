@@ -43,6 +43,7 @@
 extern bool psx_gte_overclock;
 pscpu_timestamp_t PS_CPU::next_event_ts;
 uint32 PS_CPU::IPCache;
+uint32 PS_CPU::BIU;
 bool PS_CPU::Halted;
 struct PS_CPU::CP0 PS_CPU::CP0;
 
@@ -3230,8 +3231,7 @@ void PS_CPU::hw_write_byte(struct lightrec_state *state,
 
 	PSX_MemWrite8(timestamp, mem, val);
 
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 }
 
 void PS_CPU::hw_write_half(struct lightrec_state *state,
@@ -3241,8 +3241,7 @@ void PS_CPU::hw_write_half(struct lightrec_state *state,
 
 	PSX_MemWrite16(timestamp, mem, val);
 
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 }
 
 void PS_CPU::hw_write_word(struct lightrec_state *state,
@@ -3252,8 +3251,7 @@ void PS_CPU::hw_write_word(struct lightrec_state *state,
 
 	PSX_MemWrite32(timestamp, mem, val);
 
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 }
 
 u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
@@ -3263,14 +3261,13 @@ u8 PS_CPU::hw_read_byte(struct lightrec_state *state,
 
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+
 	val = PSX_MemRead8(timestamp,mem);
 
 	/* Calling PSX_MemRead* might update timestamp - Make sure
 	 * here that state->current_cycle stays in sync. */
 	lightrec_reset_cycle_count(lightrec_state, timestamp);
-
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
@@ -3282,14 +3279,13 @@ u16 PS_CPU::hw_read_half(struct lightrec_state *state,
 
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+
 	val = PSX_MemRead16(timestamp, mem);
 
 	/* Calling PSX_MemRead* might update timestamp - Make sure
 	 * here that state->current_cycle stays in sync. */
 	lightrec_reset_cycle_count(lightrec_state, timestamp);
-
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
@@ -3301,14 +3297,13 @@ u32 PS_CPU::hw_read_word(struct lightrec_state *state,
 
 	pscpu_timestamp_t timestamp = lightrec_current_cycle_count(state);
 
+	lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
+
 	val = PSX_MemRead32(timestamp, mem);
 
 	/* Calling PSX_MemRead* might update timestamp - Make sure
 	 * here that state->current_cycle stays in sync. */
 	lightrec_reset_cycle_count(lightrec_state, timestamp);
-
-	if (timestamp >= next_event_ts)
-		lightrec_set_exit_flags(state, LIGHTREC_EXIT_CHECK_INTERRUPT);
 
 	return val;
 }
@@ -3320,6 +3315,23 @@ struct lightrec_mem_map_ops PS_CPU::hw_regs_ops = {
 	.lb = hw_read_byte,
 	.lh = hw_read_half,
 	.lw = hw_read_word,
+};
+
+u32 PS_CPU::cache_ctrl_read_word(struct lightrec_state *state,
+		u32 mem)
+{
+	return BIU;
+}
+
+void PS_CPU::cache_ctrl_write_word(struct lightrec_state *state,
+		u32 mem, u32 val)
+{
+	BIU = val;
+}
+
+struct lightrec_mem_map_ops PS_CPU::cache_ctrl_ops = {
+	.sw = cache_ctrl_write_word,
+	.lw = cache_ctrl_read_word,
 };
 
 struct lightrec_mem_map PS_CPU::lightrec_map[] = {
@@ -3353,7 +3365,7 @@ struct lightrec_mem_map PS_CPU::lightrec_map[] = {
 		/* Cache control */
 		.pc = 0x5ffe0130,
 		.length = 4,
-		.ops = &hw_regs_ops,
+		.ops = &cache_ctrl_ops,
 	},
 
 	/* Mirrors of the kernel/user memory */
