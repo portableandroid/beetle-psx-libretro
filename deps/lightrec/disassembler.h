@@ -22,8 +22,7 @@
 
 #define __packed __attribute__((packed))
 
-#define LIGHTREC_SKIP_PC_UPDATE	(1 << 0)
-#define LIGHTREC_DIRECT_IO	(1 << 1)
+#define LIGHTREC_DIRECT_IO	(1 << 0)
 
 struct block;
 
@@ -182,18 +181,17 @@ struct opcode {
 		struct opcode_i i;
 		struct opcode_j j;
 	};
-	u32 flags;
+	u16 flags;
+	u16 offset;
 	SLIST_ENTRY(opcode) next;
 };
 
 SLIST_HEAD(opcode_list_head, opcode);
 
-#define code_to_opcode(code) ((struct opcode *)&(code))
-
 struct opcode * lightrec_disassemble(const u32 *src, unsigned int *len);
 void lightrec_free_opcode_list(struct opcode *list);
 
-unsigned int lightrec_cycles_of_opcode(const struct opcode *op);
+unsigned int lightrec_cycles_of_opcode(union code code);
 
 void lightrec_print_disassembly(const struct block *block,
 				const u32 *code, unsigned int length);

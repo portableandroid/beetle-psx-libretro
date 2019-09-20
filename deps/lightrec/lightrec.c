@@ -99,7 +99,7 @@ lightrec_get_map(struct lightrec_state *state, u32 kaddr)
 }
 
 u32 lightrec_rw(struct lightrec_state *state, union code op,
-		u32 addr, u32 data, u32 *flags)
+		u32 addr, u32 data, u16 *flags)
 {
 	const struct lightrec_mem_map *map;
 	const struct lightrec_mem_map_ops *ops;
@@ -629,7 +629,7 @@ int lightrec_compile_block(struct block *block)
 	jit_state_t *_jit;
 	bool skip_next = false;
 	jit_word_t code_size;
-	u32 pc = block->pc;
+	u32 next_pc;
 	int ret;
 
 	_jit = jit_new_state();
@@ -644,17 +644,15 @@ int lightrec_compile_block(struct block *block)
 	jit_tramp(256);
 
 	for (elm = block->opcode_list; elm; elm = SLIST_NEXT(elm, next)) {
-		block->cycles += lightrec_cycles_of_opcode(elm);
+		block->cycles += lightrec_cycles_of_opcode(elm->c);
 
 		if (skip_next) {
 			skip_next = false;
 		} else if (elm->opcode) {
-			ret = lightrec_rec_opcode(block, elm, pc);
+			next_pc = block->pc + elm->offset * sizeof(u32);
+			ret = lightrec_rec_opcode(block, elm, next_pc);
 			skip_next = ret == SKIP_DELAY_SLOT;
 		}
-
-		if (likely(!(elm->flags & LIGHTREC_SKIP_PC_UPDATE)))
-			pc += 4;
 	}
 
 	jit_ret();
