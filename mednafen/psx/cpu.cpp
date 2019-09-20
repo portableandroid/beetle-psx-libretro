@@ -3425,13 +3425,13 @@ int PS_CPU::lightrec_plugin_init()
 	 * jump above that code. */
 	memset(psxR + 0x250, 0, 0x28);
 	memset(psxR + 0x2a0, 0, 0x88);
-	*(u32 *) (psxR + 0x320) = 0x240a1000;
-	*(u32 *) (psxR + 0x324) = 0x240b0f80;
+	MDFN_en32lsb<true>((u32 *) (psxR + 0x320),0x240a1000);
+	MDFN_en32lsb<true>((u32 *) (psxR + 0x324),0x240b0f80);
 
 	memset(psxR + 0x1960, 0, 0x28);
 	memset(psxR + 0x19b0, 0, 0x88);
-	*(u32 *) (psxR + 0x1a30) = 0x240a1000;
-	*(u32 *) (psxR + 0x1a34) = 0x240b0f80;
+	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a30),0x240a1000);
+	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a34),0x240b0f80);
 
 	fprintf(stderr, "M=0x%lx, R=0x%lx, H=0x%lx\n",
 			(uintptr_t) psxM,
