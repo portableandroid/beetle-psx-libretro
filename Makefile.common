@@ -145,8 +145,8 @@ ifeq ($(NEED_TREMOR), 1)
 endif
 
 ifeq ($(HAVE_LIGHTREC), 1)
-   FLAGS += -DHAVE_LIGHTREC \
-            -DHAVE_FFSL
+   FLAGS += -DHAVE_LIGHTREC
+
    ifneq (,$(findstring win,$(platform)))
        FLAGS += -DENABLE_FIRST_PASS=0 \
                 -DENABLE_THREADED_COMPILER=0 \

@@ -683,7 +683,7 @@ static void _patch_at(jit_state_t*, jit_node_t*, jit_word_t, jit_word_t);
 #    if __X32
 #      define ffsl(i)			ffs(i)
 #    else
-static int ffsl(long);
+int ffsl(long);
 #    endif
 #  endif
 #endif
@@ -3841,7 +3841,7 @@ _patch_at(jit_state_t *_jit, jit_node_t *node,
 }
 
 #  if __X64 && !defined(HAVE_FFSL)
-static int
+int
 ffsl(long i)
 {
     int		bit;
