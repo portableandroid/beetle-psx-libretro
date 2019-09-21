@@ -153,7 +153,8 @@ ifeq ($(HAVE_LIGHTREC), 1)
                 -DLIGHTREC_STATIC=1
    else
        FLAGS += -DENABLE_FIRST_PASS=1 \
-                -DENABLE_THREADED_COMPILER=1
+                -DENABLE_THREADED_COMPILER=1 \
+                -DHAVE_FFSL
    endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
