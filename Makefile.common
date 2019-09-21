@@ -156,7 +156,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
                 -Dffs=__builtin_ffs
    else
        FLAGS += -DENABLE_FIRST_PASS=1 \
-                -DENABLE_THREADED_COMPILER=1 \
+                -DENABLE_THREADED_COMPILER=1
    endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
