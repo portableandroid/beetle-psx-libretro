@@ -3169,6 +3169,9 @@ void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
 			/* Those registers are read-only */
 			break;
 		case 12: /* Status */
+			if ((CP0.SR & ~value) & (1 << 16))
+				lightrec_invalidate_all(state);
+
 			CP0.SR = value & ~( (0x3 << 26) | (0x3 << 23) | (0x3 << 6));
 			RecalcIPCache();
 			lightrec_set_exit_flags(state,
