@@ -3116,14 +3116,6 @@ void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 #ifdef HAVE_LIGHTREC
 #define ARRAY_SIZE(x) (sizeof(x) ? sizeof(x) / sizeof((x)[0]) : 0)
 
-#ifdef __GNUC__
-#	define likely(x)       __builtin_expect(!!(x),1)
-#	define unlikely(x)     __builtin_expect(!!(x),0)
-#else
-#	define likely(x)       (x)
-#	define unlikely(x)     (x)
-#endif
-
 static struct lightrec_state *lightrec_state;
 
 static char *name = (char*) "beetle_psx_libretro";
@@ -3221,7 +3213,7 @@ static void cop_op(struct lightrec_state *state, u32 func)
 }
 
 static void cop2_op(struct lightrec_state *state, u32 func){
-	if (unlikely(!cp2_ops[func & 0x3f]))
+	if (MDFN_UNLIKELY(!cp2_ops[func & 0x3f]))
                 fprintf(stderr, "Invalid CP2 function %u\n", func);
         else
                 GTE_Instruction(func);
