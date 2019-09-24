@@ -3429,12 +3429,12 @@ int PS_CPU::lightrec_plugin_init()
 	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a30),0x240a1000);
 	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a34),0x240b0f80);
 
-	fprintf(stderr, "M=0x%lx, R=0x%lx, H=0x%lx\n",
+	fprintf(stderr, "M=0x%lx, P=0x%lx, R=0x%lx, H=0x%lx\n",
 			(uintptr_t) psxM,
+			(uintptr_t) psxP,
 			(uintptr_t) psxR,
 			(uintptr_t) psxH);
 
-	//signal(SIGPIPE, exit);
 	return 0;
 }
 
