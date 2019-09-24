@@ -347,7 +347,7 @@ PS_CDC *PSX_CDC = NULL;
 FrontIO *PSX_FIO = NULL;
 
 MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM = NULL;
-static MultiAccessSizeMem<65536, uint32, false> *PIOMem = NULL;
+MultiAccessSizeMem<65536, uint32, false> *PIOMem = NULL;
 
 MultiAccessSizeMem<2048 * 1024, uint32, false> MainRAM;
 
@@ -1598,7 +1598,11 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    BIOSROM = new MultiAccessSizeMem<512 * 1024, uint32, false>();
    PIOMem  = NULL;
 
+#if HAVE_LIGHTREC
+   if(1)
+#else
    if(WantPIOMem)
+#endif
       PIOMem = new MultiAccessSizeMem<65536, uint32, false>();
 
    for(uint32_t ma = 0x00000000; ma < 0x00800000; ma += 2048 * 1024)

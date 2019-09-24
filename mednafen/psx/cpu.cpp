@@ -3404,11 +3404,12 @@ int PS_CPU::lightrec_plugin_init()
 	uint8_t *psxM = (uint8_t *) MainRAM.data8;
 	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
 	uint8_t *psxH = (uint8_t *) ScratchRAM.data8;
+	uint8_t *psxP = (uint8_t *) PIOMem->data8;
 
 	lightrec_map[PSX_MAP_KERNEL_USER_RAM].address = psxM;
 	lightrec_map[PSX_MAP_BIOS].address = psxR;
 	lightrec_map[PSX_MAP_SCRATCH_PAD].address = psxH;
-	lightrec_map[PSX_MAP_PARALLEL_PORT].address = psxM + 0x200000;
+	lightrec_map[PSX_MAP_PARALLEL_PORT].address = psxP;
 
 	lightrec_state = lightrec_init(name,
 			lightrec_map, ARRAY_SIZE(lightrec_map),

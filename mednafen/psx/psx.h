@@ -102,6 +102,7 @@ extern PS_CDC *PSX_CDC;
 extern PS_SPU *PSX_SPU;
 extern MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM;
 extern MultiAccessSizeMem<2048 * 1024, uint32_t, false> MainRAM;
+extern MultiAccessSizeMem<65536, uint32_t, false> *PIOMem;
 
 #define OVERCLOCK_SHIFT 8
 extern int32_t psx_overclock_factor;
