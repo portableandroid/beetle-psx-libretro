@@ -60,7 +60,9 @@
 */
 
 #include "gte.h"
-#include <lightrec.h>
+#ifdef HAVE_LIGHTREC
+   #include <lightrec.h>
+#endif
 
 #if NOT_LIBRETRO
 namespace MDFN_IEN_PSX
