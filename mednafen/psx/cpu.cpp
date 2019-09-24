@@ -3400,6 +3400,8 @@ struct lightrec_ops PS_CPU::ops = {
 
 int PS_CPU::lightrec_plugin_init()
 {
+	if(lightrec_state)
+		lightrec_destroy(lightrec_state);
 
 	uint8_t *psxM = (uint8_t *) MainRAM.data8;
 	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
@@ -3489,21 +3491,6 @@ int32_t PS_CPU::lightrec_plugin_execute(int32_t timestamp)
 	ACTIVE_TO_BACKING;
 
 	return timestamp;
-}
-
-void PS_CPU::lightrec_plugin_clear(u32 addr, u32 size)
-{
-	/* size * 4: PCSX uses DMA units */
-	lightrec_invalidate(lightrec_state, addr, size * 4);
-}
-
-void PS_CPU::lightrec_plugin_shutdown(void)
-{
-	lightrec_destroy(lightrec_state);
-}
-
-void PS_CPU::lightrec_plugin_reset(void)
-{
 }
 #endif
 
