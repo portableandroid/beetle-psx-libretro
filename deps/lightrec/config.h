@@ -16,6 +16,7 @@
 #define __LIGHTREC_CONFIG_H__
 
 #define ENABLE_DISASSEMBLER 0
+#define ENABLE_FIRST_PASS 1
 
 #endif /* __LIGHTREC_CONFIG_H__ */
 
