@@ -3511,6 +3511,9 @@ void PS_CPU::lightrec_plugin_clear(u32 addr, u32 size)
 
 void PS_CPU::lightrec_plugin_shutdown(void)
 {
+	fprintf(stderr,"Lightrec Memory usage: %.2f MB, Average native instruction bytes per MIPS instruction byte: %.2f\n",
+		lightrec_get_total_mem_usage()/1000000.0,
+		lightrec_get_average_ipi());
 	lightrec_destroy(lightrec_state);
 }
 
