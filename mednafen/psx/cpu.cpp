@@ -110,7 +110,7 @@ PS_CPU::PS_CPU()
 
 PS_CPU::~PS_CPU()
 {
-
+ lightrec_plugin_shutdown();
 
 }
 
@@ -3504,6 +3504,11 @@ void PS_CPU::lightrec_plugin_clear(u32 addr, u32 size)
 {
        /* size * 4: uses DMA units */
        lightrec_invalidate(lightrec_state, addr, size * 4);
+}
+
+void PS_CPU::lightrec_plugin_shutdown(void)
+{
+	lightrec_destroy(lightrec_state);
 }
 
 #endif

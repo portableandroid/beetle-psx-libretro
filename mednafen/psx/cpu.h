@@ -246,6 +246,7 @@ class PS_CPU
 
 #ifdef HAVE_LIGHTREC
  int lightrec_plugin_init();
+ void lightrec_plugin_shutdown();
  int32 lightrec_plugin_execute(int32 timestamp);
  static uint32 cop_cfc(lightrec_state*, uint8);
  static uint32 cop_mfc(lightrec_state*, uint8);
