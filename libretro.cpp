@@ -1600,7 +1600,7 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    BIOSROM = new MultiAccessSizeMem<512 * 1024, uint32, false>();
    PIOMem  = NULL;
 
-#if HAVE_LIGHTREC
+#ifdef HAVE_LIGHTREC
    if(1)
 #else
    if(WantPIOMem)

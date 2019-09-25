@@ -110,7 +110,9 @@ PS_CPU::PS_CPU()
 
 PS_CPU::~PS_CPU()
 {
+#ifdef HAVE_LIGHTREC
  lightrec_plugin_shutdown();
+#endif
 
 }
 
