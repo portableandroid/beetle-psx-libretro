@@ -70,6 +70,7 @@ enum psx_map {
 
 enum mem_type {
 	MEM_FOR_CODE,
+	MEM_FOR_MIPS_CODE,
 	MEM_FOR_IR,
 	MEM_FOR_LIGHTREC,
 	MEM_TYPE_END,
@@ -134,6 +135,7 @@ __api void lightrec_set_target_cycle_count(struct lightrec_state *state,
 
 __api unsigned int lightrec_get_mem_usage(enum mem_type type);
 __api unsigned int lightrec_get_total_mem_usage(void);
+__api float lightrec_get_average_ipi(void);
 
 #ifdef __cplusplus
 };

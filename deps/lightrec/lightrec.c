@@ -102,10 +102,8 @@ u32 lightrec_rw(struct lightrec_state *state, union code op,
 		u32 addr, u32 data, u16 *flags)
 {
 	const struct lightrec_mem_map *map;
-	const struct lightrec_mem_map_ops *ops;
 	u32 shift, mem_data, mask, pc;
 	uintptr_t new_addr;
-	unsigned int i;
 	u32 kaddr;
 
 	addr += (s16) op.i.imm;
@@ -117,7 +115,6 @@ u32 lightrec_rw(struct lightrec_state *state, union code op,
 		return 0;
 	}
 
-	ops = map->ops;
 	pc = map->pc;
 
 	if (unlikely(map->ops))
@@ -394,6 +391,7 @@ static struct block * generate_wrapper(struct lightrec_state *state,
 	block->function = jit_emit();
 	block->opcode_list = NULL;
 	block->flags = 0;
+	block->nb_ops = 0;
 
 	jit_get_code(&code_size);
 	lightrec_register(MEM_FOR_CODE, code_size);
@@ -524,6 +522,7 @@ static struct block * generate_wrapper_block(struct lightrec_state *state)
 	block->function = jit_emit();
 	block->opcode_list = NULL;
 	block->flags = 0;
+	block->nb_ops = 0;
 
 	jit_get_code(&code_size);
 	lightrec_register(MEM_FOR_CODE, code_size);
@@ -611,8 +610,11 @@ static struct block * lightrec_precompile_block(struct lightrec_state *state,
 #if ENABLE_THREADED_COMPILER
 	block->op_list_freed = (atomic_flag)ATOMIC_FLAG_INIT;
 #endif
+	block->nb_ops = length / sizeof(u32);
 
 	lightrec_optimize(list);
+
+	lightrec_register(MEM_FOR_MIPS_CODE, length);
 
 	if (ENABLE_DISASSEMBLER) {
 		pr_debug("Disassembled block at PC: 0x%x\n", block->pc);
@@ -725,6 +727,7 @@ u32 lightrec_run_interpreter(struct lightrec_state *state, u32 pc)
 
 void lightrec_free_block(struct block *block)
 {
+	lightrec_unregister(MEM_FOR_MIPS_CODE, block->nb_ops * sizeof(u32));
 	if (block->opcode_list)
 		lightrec_free_opcode_list(block->opcode_list);
 	if (block->_jit)
@@ -739,7 +742,7 @@ struct lightrec_state * lightrec_init(char *argv0,
 				      const struct lightrec_ops *ops)
 {
 	struct lightrec_state *state;
-	unsigned int i, lut_size;
+	unsigned int lut_size;
 
 	/* Sanity-check ops */
 	if (!ops ||
@@ -854,8 +857,6 @@ err_finish_jit:
 
 void lightrec_destroy(struct lightrec_state *state)
 {
-	unsigned int i;
-
 	if (ENABLE_THREADED_COMPILER)
 		lightrec_free_recompiler(state->rec);
 
