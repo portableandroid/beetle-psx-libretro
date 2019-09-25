@@ -2679,7 +2679,8 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
 pscpu_timestamp_t PS_CPU::Run(pscpu_timestamp_t timestamp_in, bool BIOSPrintMode, bool ILHMode)
 {
 #ifdef HAVE_LIGHTREC
- return(lightrec_plugin_execute(timestamp_in));
+ if(psx_dynarec)
+  return(lightrec_plugin_execute(timestamp_in));
 #endif
  if(CPUHook || ADDBT)
   return(RunReal<true, true, false>(timestamp_in));

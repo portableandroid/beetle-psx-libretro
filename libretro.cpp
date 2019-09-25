@@ -61,6 +61,8 @@ bool cd_async = false;
 bool cd_warned_slow = false;
 int64 cd_slow_timeout = 8000; // microseconds
 
+bool psx_dynarec;
+
 // CPU overclock factor (or 0 if disabled)
 int32_t psx_overclock_factor = 0;
 // GPU rasterizer overclock shift
@@ -2694,6 +2696,20 @@ static void check_variables(bool startup)
          cd_async = false;
       }
    }
+#endif
+
+#ifdef HAVE_LIGHTREC
+   var.key = BEETLE_OPT(cpu_dynarec);
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "enabled") == 0)
+         psx_dynarec = true;
+      else
+         psx_dynarec = false;
+   }
+   else
+      psx_dynarec = true;
 #endif
 
    var.key = BEETLE_OPT(cpu_freq_scale);
