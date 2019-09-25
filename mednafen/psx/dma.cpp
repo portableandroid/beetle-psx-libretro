@@ -437,6 +437,9 @@ static INLINE void RunChannel(int32_t timestamp, int32_t clocks, int ch)
 
 			//iCB: Pass address of memory for GPU
             ChRW(ch, CRModeCache, DMACH[ch].CurAddr, &vtmp, &voffs);
+#ifdef HAVE_LIGHTREC
+            PSX_CPU->lightrec_plugin_clear(DMACH[ch].CurAddr, 1);
+#endif
 
             if(!(CRModeCache & 0x1))
                MainRAM.WriteU32((DMACH[ch].CurAddr + (voffs << 2)) & 0x1FFFFC, vtmp);

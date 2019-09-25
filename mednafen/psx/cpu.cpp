@@ -3492,6 +3492,13 @@ int32_t PS_CPU::lightrec_plugin_execute(int32_t timestamp)
 
 	return timestamp;
 }
+
+void PS_CPU::lightrec_plugin_clear(u32 addr, u32 size)
+{
+       /* size * 4: uses DMA units */
+       lightrec_invalidate(lightrec_state, addr, size * 4);
+}
+
 #endif
 
 #if NOT_LIBRETRO

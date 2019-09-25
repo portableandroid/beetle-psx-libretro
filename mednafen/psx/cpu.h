@@ -106,6 +106,9 @@ class PS_CPU
  uint32 GetBIU(void);
 
  int StateAction(StateMem *sm, const unsigned load, const bool data_only);
+#ifdef HAVE_LIGHTREC
+ void lightrec_plugin_clear(uint32 addr, uint32 size);
+#endif
 
  private:
 
@@ -241,6 +244,32 @@ class PS_CPU
 
  uint32 ReadInstruction(pscpu_timestamp_t &timestamp, uint32 address);
 
+#ifdef HAVE_LIGHTREC
+ int lightrec_plugin_init();
+ int32 lightrec_plugin_execute(int32 timestamp);
+ static uint32 cop_cfc(lightrec_state*, uint8);
+ static uint32 cop_mfc(lightrec_state*, uint8);
+ static uint32 cop2_cfc(lightrec_state*, uint8);
+ static uint32 cop2_mfc(lightrec_state*, uint8);
+ static void cop_mtc_ctc(struct lightrec_state *state, uint8 reg, uint32 value);
+ static void cop_ctc(lightrec_state*, uint8, uint32);
+ static void cop_mtc(lightrec_state*, uint8, uint32);
+ static void cop2_ctc(lightrec_state*, uint8, uint32);
+ static void cop2_mtc(lightrec_state*, uint8, uint32);
+ static struct lightrec_ops ops;
+ static struct lightrec_mem_map_ops hw_regs_ops;
+ static struct lightrec_mem_map_ops cache_ctrl_ops;
+ static struct lightrec_mem_map lightrec_map[];
+ static void hw_write_byte(struct lightrec_state *state, uint32 mem, uint8 val);
+ static void hw_write_half(struct lightrec_state *state, uint32 mem, uint16 val);
+ static void hw_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint8 hw_read_byte(struct lightrec_state *state, uint32 mem);
+ static uint16 hw_read_half(struct lightrec_state *state, uint32 mem);
+ static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
+ static void cache_ctrl_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint32 cache_ctrl_read_word(struct lightrec_state *state, uint32 mem);
+#endif
+
  //
  // Mednafen debugger stuff follows:
  //
@@ -286,31 +315,6 @@ class PS_CPU
  void (*CPUHook)(const pscpu_timestamp_t timestamp, uint32 pc);
  void (*ADDBT)(uint32 from, uint32 to, bool exception);
  void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
-#ifdef HAVE_LIGHTREC
- int lightrec_plugin_init();
- int32 lightrec_plugin_execute(int32 timestamp);
- static uint32 cop_cfc(lightrec_state*, uint8);
- static uint32 cop_mfc(lightrec_state*, uint8);
- static uint32 cop2_cfc(lightrec_state*, uint8);
- static uint32 cop2_mfc(lightrec_state*, uint8);
- static void cop_mtc_ctc(struct lightrec_state *state, uint8 reg, uint32 value);
- static void cop_ctc(lightrec_state*, uint8, uint32);
- static void cop_mtc(lightrec_state*, uint8, uint32);
- static void cop2_ctc(lightrec_state*, uint8, uint32);
- static void cop2_mtc(lightrec_state*, uint8, uint32);
- static struct lightrec_ops ops;
- static struct lightrec_mem_map_ops hw_regs_ops;
- static struct lightrec_mem_map_ops cache_ctrl_ops;
- static struct lightrec_mem_map lightrec_map[];
- static void hw_write_byte(struct lightrec_state *state, uint32 mem, uint8 val);
- static void hw_write_half(struct lightrec_state *state, uint32 mem, uint16 val);
- static void hw_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
- static uint8 hw_read_byte(struct lightrec_state *state, uint32 mem);
- static uint16 hw_read_half(struct lightrec_state *state, uint32 mem);
- static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
- static void cache_ctrl_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
- static uint32 cache_ctrl_read_word(struct lightrec_state *state, uint32 mem);
-#endif
 };
 
 #if NOT_LIBRETRO
