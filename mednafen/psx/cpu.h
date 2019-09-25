@@ -268,6 +268,7 @@ class PS_CPU
  static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
  static void cache_ctrl_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
  static uint32 cache_ctrl_read_word(struct lightrec_state *state, uint32 mem);
+ static void reset_target_cycle_count(struct lightrec_state *state, pscpu_timestamp_t timestamp);
 #endif
 
  //
