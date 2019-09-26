@@ -3335,7 +3335,11 @@ void PS_CPU::cache_ctrl_write_word(struct lightrec_state *state,
 }
 
 struct lightrec_mem_map_ops PS_CPU::cache_ctrl_ops = {
+	.sb = NULL,
+	.sh = NULL,
 	.sw = cache_ctrl_write_word,
+	.lb = NULL,
+	.lh = NULL,
 	.lw = cache_ctrl_read_word,
 };
 
@@ -3364,12 +3368,14 @@ struct lightrec_mem_map PS_CPU::lightrec_map[] = {
 		/* Hardware registers */
 		.pc = 0x1f801000,
 		.length = 0x2000,
+		.address = NULL,
 		.ops = &hw_regs_ops,
 	},
 	[PSX_MAP_CACHE_CONTROL] = {
 		/* Cache control */
 		.pc = 0x5ffe0130,
 		.length = 4,
+		.address = NULL,
 		.ops = &cache_ctrl_ops,
 	},
 
@@ -3377,16 +3383,22 @@ struct lightrec_mem_map PS_CPU::lightrec_map[] = {
 	{
 		.pc = 0x00200000,
 		.length = 0x200000,
+		.address = NULL,
+		.ops = NULL,
 		.mirror_of = &lightrec_map[PSX_MAP_KERNEL_USER_RAM],
 	},
 	{
 		.pc = 0x00400000,
 		.length = 0x200000,
+		.address = NULL,
+		.ops = NULL,
 		.mirror_of = &lightrec_map[PSX_MAP_KERNEL_USER_RAM],
 	},
 	{
 		.pc = 0x00600000,
 		.length = 0x200000,
+		.address = NULL,
+		.ops = NULL,
 		.mirror_of = &lightrec_map[PSX_MAP_KERNEL_USER_RAM],
 	},
 };
