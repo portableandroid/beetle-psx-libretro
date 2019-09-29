@@ -145,8 +145,7 @@ ifeq ($(NEED_TREMOR), 1)
 endif
 
 ifeq ($(HAVE_LIGHTREC), 1)
-   FLAGS += -DHAVE_LIGHTREC \
-            -DHAVE_FFSL
+   FLAGS += -DHAVE_LIGHTREC
 
    ifeq ($(DEBUG), 0)
        FLAGS += -DENABLE_THREADED_COMPILER=1
@@ -155,9 +154,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
    endif
 
    ifneq (,$(findstring win,$(platform)))
-       FLAGS += -DLIGHTREC_STATIC=1 \
-                -Dffsl=__builtin_ffsl \
-                -Dffs=__builtin_ffs
+       FLAGS += -DLIGHTREC_STATIC=1
    endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
