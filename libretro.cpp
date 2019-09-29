@@ -3533,6 +3533,11 @@ bool retro_load_game(const struct retro_game_info *info)
       how to copy the ugui framebuffer to the hardware renderer side with rsx_intf calls,
       so we don't have to force this anymore. */
       force_software_renderer = true;
+
+#ifdef HAVE_LIGHTREC
+      /* Do not run lightrec if firmware is not found, recompiling garbage is bad*/
+      psx_dynarec = false;
+#endif
    } 
 
    ret = rsx_intf_open(is_pal, force_software_renderer);
