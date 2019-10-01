@@ -252,6 +252,7 @@ class PS_CPU
  uint32 ReadInstruction(pscpu_timestamp_t &timestamp, uint32 address);
 
 #ifdef HAVE_LIGHTREC
+ void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
  int lightrec_plugin_init();
  void lightrec_plugin_shutdown();
  int32 lightrec_plugin_execute(int32 timestamp);
@@ -323,7 +324,6 @@ class PS_CPU
  private:
  void (*CPUHook)(const pscpu_timestamp_t timestamp, uint32 pc);
  void (*ADDBT)(uint32 from, uint32 to, bool exception);
- void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
 };
 
 #if NOT_LIBRETRO

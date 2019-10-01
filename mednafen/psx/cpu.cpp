@@ -2662,7 +2662,7 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
    //printf("\n");
   }
   if (timestamp >= 0 && PC != old_pc){
-#ifdef DEBUG
+#if defined(HAVE_LIGHTREC) && defined(DEBUG)
      print_for_big_ass_debugger(timestamp, PC);
 #endif
   }
@@ -3053,6 +3053,22 @@ void PS_CPU::CheckBreakpoints(void (*callback)(bool write, uint32 address, unsig
  }
 }
 
+#ifdef HAVE_LIGHTREC
+#define ARRAY_SIZE(x) (sizeof(x) ? sizeof(x) / sizeof((x)[0]) : 0)
+
+static struct lightrec_state *lightrec_state;
+
+static char *name = (char*) "beetle_psx_libretro";
+
+bool use_lightrec_interpreter = false;
+#ifdef DEBUG
+bool lightrec_debug = true;
+#else
+bool lightrec_debug = false;
+#endif
+int lightrec_very_debug = 0;
+u32 lightrec_begin_cycles = 0;
+
 u32 hash_calculate(const void *buffer, u32 count)
 {
 	unsigned int i;
@@ -3093,45 +3109,15 @@ void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 		hash_calculate(&CP0.Regs,
 			sizeof(CP0.Regs)));
 
-#ifndef HAVE_LIGHTREC
 /*
 	if (lightrec_very_debug)
 		for (i = 0; i < 33; i++)
 			printf(" GPR[%i] 0x%08x", i, GPR[i]);
 	else
 */		printf(" GPR 0x%08x", hash_calculate(&GPR,
-					sizeof(GPR)));
-#else
-	u32 GPRC[34];
-	memcpy(GPRC,GPR,32*sizeof(u32));
-	GPRC[32] = LO;
-	GPRC[33] = HI;
-/*
-	if (lightrec_very_debug)
-		for (i = 0; i < 33; i++)
-			printf(" GPR[%i] 0x%08x", i, GPRC[i]);
-	else
-*/		printf(" GPR 0x%08x", hash_calculate(&GPRC,
-					sizeof(GPRC)));
-#endif
+					sizeof(GPR)-1));
 	printf("\n");
 }
-
-#ifdef HAVE_LIGHTREC
-#define ARRAY_SIZE(x) (sizeof(x) ? sizeof(x) / sizeof((x)[0]) : 0)
-
-static struct lightrec_state *lightrec_state;
-
-static char *name = (char*) "beetle_psx_libretro";
-
-bool use_lightrec_interpreter = false;
-#ifdef DEBUG
-bool lightrec_debug = true;
-#else
-bool lightrec_debug = false;
-#endif
-int lightrec_very_debug = 0;
-u32 lightrec_begin_cycles = 0;
 
 u32 PS_CPU::cop_mfc(struct lightrec_state *state, u8 reg)
 {
