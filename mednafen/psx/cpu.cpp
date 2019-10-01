@@ -161,7 +161,7 @@ void PS_CPU::Power(void)
  BACKED_new_PC = BACKED_PC + 4;
  BDBT = 0;
 
- BACKED_LDWhich = 0x20;
+ BACKED_LDWhich = DU;
  BACKED_LDValue = 0;
  LDAbsorb = 0;
  memset(ReadAbsorb, 0, sizeof(ReadAbsorb));
@@ -225,8 +225,8 @@ int PS_CPU::StateAction(StateMem *sm, const unsigned load, const bool data_only)
 
   SFVAR(CP0.Regs),
 
-  SFARRAY(ReadAbsorb, 0x20),
-  SFVARN(ReadAbsorb[0x20], "ReadAbsorbDummy"),
+  SFARRAY(ReadAbsorb, DU),
+  SFVARN(ReadAbsorb[DU], "ReadAbsorbDummy"),
   SFVAR(ReadAbsorbWhich),
   SFVAR(ReadFudge),
 
@@ -744,7 +744,7 @@ pscpu_timestamp_t PS_CPU::RunReal(pscpu_timestamp_t timestamp_in)
    else
     timestamp++;
 
-   #define DO_LDS() { GPR[LDWhich] = LDValue; ReadAbsorb[LDWhich] = LDAbsorb; ReadFudge = LDWhich; ReadAbsorbWhich |= LDWhich & 0x1F; LDWhich = 0x20; }
+   #define DO_LDS() { GPR[LDWhich] = LDValue; ReadAbsorb[LDWhich] = LDAbsorb; ReadFudge = LDWhich; ReadAbsorbWhich |= LDWhich & 0x1F; LDWhich = DU; }
    #define BEGIN_OPF(name) { op_##name:
    #define END_OPF goto OpDone; }
 
