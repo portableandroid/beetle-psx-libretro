@@ -46,6 +46,7 @@ uint32 PS_CPU::IPCache;
 uint32 PS_CPU::BIU;
 bool PS_CPU::Halted;
 struct PS_CPU::CP0 PS_CPU::CP0;
+char PS_CPU::cache_buf[64 * 1024];
 
 #if 0
  #define EXP_ILL_CHECK(n) {n;}
@@ -3164,8 +3165,12 @@ void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
 			/* Those registers are read-only */
 			break;
 		case 12: /* Status */
-			if ((CP0.SR & ~value) & (1 << 16))
+			if ((CP0.SR & ~value) & (1 << 16)) {
+				memcpy(MainRAM.data8, cache_buf, sizeof(cache_buf));
 				lightrec_invalidate_all(state);
+			} else if ((~CP0.SR & value) & (1 << 16)) {
+				memcpy(cache_buf, MainRAM.data8, sizeof(cache_buf));
+			}
 
 			CP0.SR = value & ~( (0x3 << 26) | (0x3 << 23) | (0x3 << 6));
 			RecalcIPCache();
@@ -3438,20 +3443,6 @@ int PS_CPU::lightrec_plugin_init()
 	lightrec_state = lightrec_init(name,
 			lightrec_map, ARRAY_SIZE(lightrec_map),
 			&ops);
-
-	/* At some point, the BIOS disables the writes to the RAM - every
-	 * SB/SH/SW/etc pointing to the RAM won't have any effect.
-	 * Since Lightrec does not emulate that, we just hack the BIOS here to
-	 * jump above that code. */
-	memset(psxR + 0x250, 0, 0x28);
-	memset(psxR + 0x2a0, 0, 0x88);
-	MDFN_en32lsb<true>((u32 *) (psxR + 0x320),0x240a1000);
-	MDFN_en32lsb<true>((u32 *) (psxR + 0x324),0x240b0f80);
-
-	memset(psxR + 0x1960, 0, 0x28);
-	memset(psxR + 0x19b0, 0, 0x88);
-	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a30),0x240a1000);
-	MDFN_en32lsb<true>((u32 *) (psxR + 0x1a34),0x240b0f80);
 
 	fprintf(stderr, "M=0x%lx, P=0x%lx, R=0x%lx, H=0x%lx\n",
 			(uintptr_t) psxM,

@@ -146,6 +146,8 @@ class PS_CPU
 
  uint32 addr_mask[8];
 
+ static char cache_buf[64 * 1024];
+
  enum
  {
   CP0REG_BPC = 3,		// PC breakpoint address.
