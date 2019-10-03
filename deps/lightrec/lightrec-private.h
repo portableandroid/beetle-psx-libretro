@@ -50,6 +50,7 @@
 #define BLOCK_NEVER_COMPILE	BIT(0)
 
 /* Definition of jit_state_t (avoids inclusion of <lightning.h>) */
+struct jit_node;
 struct jit_state;
 typedef struct jit_state jit_state_t;
 
@@ -67,10 +68,9 @@ struct block {
 #if ENABLE_THREADED_COMPILER
 	atomic_flag op_list_freed;
 #endif
+	unsigned int code_size;
 	u16 flags;
 	u16 nb_ops;
-	unsigned int cycles;
-	unsigned int code_size;
 	const struct lightrec_mem_map *map;
 	struct block *next;
 };
@@ -89,14 +89,19 @@ struct lightrec_state {
 	u32 exit_flags;
 	struct lightrec_op_data op_data;
 	struct block *wrapper, *rw_wrapper, *mfc_wrapper, *mtc_wrapper,
-		     *rfe_wrapper, *cp_wrapper;
-	void *rw_func, *mfc_func, *mtc_func, *rfe_func, *cp_func;
+		     *rfe_wrapper, *cp_wrapper, *syscall_wrapper,
+		     *break_wrapper;
+	void *rw_func, *mfc_func, *mtc_func, *rfe_func, *cp_func, *syscall_func,
+	     *break_func;
+	struct jit_node *branches[256];
+	unsigned int nb_branches;
 	struct blockcache *block_cache;
 	struct regcache *reg_cache;
 	struct recompiler *rec;
 	void (*eob_wrapper_func)(void);
 	void (*get_next_block)(void);
 	struct lightrec_ops ops;
+	unsigned int cycles;
 	unsigned int nb_maps;
 	const struct lightrec_mem_map *maps;
 	uintptr_t offset_ram, offset_bios, offset_scratch;

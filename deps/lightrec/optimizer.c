@@ -202,22 +202,174 @@ static bool is_nop(union code op)
 	}
 }
 
-static int lightrec_transform_to_nops(struct opcode *list)
+bool load_in_delay_slot(union code op)
 {
-	/* Transform all opcodes detected as useless to real NOPs
-	 * (0x0: SLL r0, r0, #0) */
+	switch (op.i.op) {
+	case OP_CP0:
+		switch (op.r.rs) {
+		case OP_CP0_MFC0:
+		case OP_CP0_CFC0:
+			return true;
+		default:
+			break;
+		}
+
+		break;
+	case OP_CP2:
+		if (op.r.op == OP_CP2_BASIC) {
+			switch (op.r.rs) {
+			case OP_CP2_BASIC_MFC2:
+			case OP_CP2_BASIC_CFC2:
+				return true;
+			default:
+				break;
+			}
+		}
+
+		break;
+	case OP_LWC2:
+	case OP_LB:
+	case OP_LH:
+	case OP_LW:
+	case OP_LWL:
+	case OP_LWR:
+	case OP_LBU:
+	case OP_LHU:
+		return true;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+static int lightrec_transform_ops(struct opcode *list)
+{
 	for (; list; list = list->next) {
+
+		/* Transform all opcodes detected as useless to real NOPs
+		 * (0x0: SLL r0, r0, #0) */
 		if (list->opcode != 0 && is_nop(list->c)) {
 			pr_debug("Converting useless opcode 0x%08x to NOP\n",
 					list->opcode);
 			list->opcode = 0x0;
+			continue;
+		}
+
+		/* Transform BEQ / BNE to BEQZ / BNEZ meta-opcodes if one of the
+		 * two registers is zero. */
+		switch (list->i.op) {
+		case OP_BEQ:
+			if ((list->i.rs == 0) ^ (list->i.rt == 0)) {
+				list->i.op = OP_META_BEQZ;
+				if (list->i.rs == 0) {
+					list->i.rs = list->i.rt;
+					list->i.rt = 0;
+				}
+			}
+			break;
+		case OP_BNE:
+			if (list->i.rs == 0) {
+				list->i.op = OP_META_BNEZ;
+				list->i.rs = list->i.rt;
+				list->i.rt = 0;
+			} else if (list->i.rt == 0) {
+				list->i.op = OP_META_BNEZ;
+			}
+			break;
+		default:
+			break;
 		}
 	}
 
 	return 0;
 }
 
-static bool has_delay_slot(union code op)
+static int lightrec_switch_delay_slots(struct opcode *list)
+{
+	u8 flags;
+	int ret;
+
+	for (; list->next; list = list->next) {
+		union code op = list->c;
+		union code next_op = list->next->c;
+
+		if (!has_delay_slot(op) ||
+		    (list->flags & LIGHTREC_NO_DS) ||
+		    next_op.opcode == 0 ||
+		    load_in_delay_slot(next_op) ||
+		    has_delay_slot(next_op))
+			continue;
+
+		switch (list->i.op) {
+		case OP_SPECIAL:
+			switch (op.r.op) {
+			case OP_SPECIAL_JALR:
+				if (opcode_reads_register(next_op, op.r.rd) ||
+				    opcode_writes_register(next_op, op.r.rd))
+					continue;
+			case OP_SPECIAL_JR: /* fall-through */
+				if (opcode_writes_register(next_op, op.r.rs))
+					continue;
+			default: /* fall-through */
+				break;
+			}
+		case OP_J: /* fall-through */
+			break;
+		case OP_JAL:
+			if (opcode_reads_register(next_op, 31) ||
+			    opcode_writes_register(next_op, 31))
+				continue;
+			else
+				break;
+		case OP_BEQ:
+		case OP_BNE:
+			if (opcode_writes_register(next_op, op.i.rt))
+				continue;
+		case OP_BLEZ: /* fall-through */
+		case OP_BGTZ:
+			if (opcode_writes_register(next_op, op.i.rs))
+				continue;
+			break;
+		case OP_REGIMM:
+			switch (op.r.rt) {
+			case OP_REGIMM_BLTZAL:
+			case OP_REGIMM_BGEZAL:
+				if (opcode_reads_register(next_op, 31) ||
+				    opcode_writes_register(next_op, 31))
+					continue;
+			case OP_REGIMM_BLTZ: /* fall-through */
+			case OP_REGIMM_BGEZ:
+				if (opcode_writes_register(next_op, op.i.rs))
+					continue;
+				break;
+			}
+			break;
+		case OP_META_BEQZ:
+		case OP_META_BNEZ:
+			if (opcode_writes_register(next_op, op.i.rs))
+				continue;
+		default: /* fall-through */
+			break;
+		}
+
+		pr_debug("Swap branch and delay slot opcodes "
+			 "at offsets 0x%x / 0x%x\n", list->offset << 2,
+			 list->next->offset << 2);
+
+		flags = list->next->flags;
+		list->c = next_op;
+		list->next->c = op;
+		list->next->flags = list->flags | LIGHTREC_NO_DS;
+		list->flags = flags;
+		list->offset++;
+		list->next->offset--;
+	}
+
+	return 0;
+}
+
+bool has_delay_slot(union code op)
 {
 	switch (op.i.op) {
 	case OP_SPECIAL:
@@ -235,6 +387,8 @@ static bool has_delay_slot(union code op)
 	case OP_BLEZ:
 	case OP_BGTZ:
 	case OP_REGIMM:
+	case OP_META_BEQZ:
+	case OP_META_BNEZ:
 		return true;
 	default:
 		return false;
@@ -299,9 +453,35 @@ static int lightrec_early_unload(struct opcode *list)
 	return 0;
 }
 
+static int lightrec_flag_stores(struct opcode *list)
+{
+	/* Mark all store operations that target $sp, $gp, $k0 or $k1 as not
+	 * requiring code invalidation. This is based on the heuristic that
+	 * stores using one of these registers as address will never hit a code
+	 * page. */
+	for (; list; list = list->next) {
+		switch (list->i.op) {
+		case OP_SB:
+		case OP_SH:
+		case OP_SW:
+			if (list->i.rs >= 26 && list->i.rs <= 29) {
+				pr_debug("Flaging opcode 0x%08x as not requiring invalidation\n",
+					 list->opcode);
+				list->flags |= LIGHTREC_NO_INVALIDATE;
+			}
+		default: /* fall-through */
+			break;
+		}
+	}
+
+	return 0;
+}
+
 static int (*lightrec_optimizers[])(struct opcode *) = {
-	&lightrec_transform_to_nops,
+	&lightrec_transform_ops,
+	&lightrec_switch_delay_slots,
 	&lightrec_early_unload,
+	&lightrec_flag_stores,
 };
 
 int lightrec_optimize(struct opcode *list)

@@ -21,6 +21,8 @@
 #define __packed __attribute__((packed))
 
 #define LIGHTREC_DIRECT_IO	(1 << 0)
+#define LIGHTREC_NO_INVALIDATE	(1 << 1)
+#define LIGHTREC_NO_DS		(1 << 2)
 
 struct block;
 
@@ -59,6 +61,9 @@ enum standard_opcodes {
 	OP_SWC2			= 0x3a,
 
 	OP_META_REG_UNLOAD	= 0x11,
+
+	OP_META_BEQZ		= 0x14,
+	OP_META_BNEZ		= 0x15,
 };
 
 enum special_opcodes {
