@@ -178,7 +178,7 @@ void PS_CPU::Power(void)
 
  BIU = 0;
 
- memset(ScratchRAM.data8, 0, 1024);
+ memset(ScratchRAM->data8, 0, 1024);
 
 #ifdef HAVE_LIGHTREC
  lightrec_plugin_init();
@@ -230,7 +230,7 @@ int PS_CPU::StateAction(StateMem *sm, const unsigned load, const bool data_only)
   SFVAR(ReadAbsorbWhich),
   SFVAR(ReadFudge),
 
-  SFARRAY(ScratchRAM.data8, 1024),
+  SFARRAY(ScratchRAM->data8, 1024),
 
   SFEND
  };
@@ -311,7 +311,7 @@ INLINE T PS_CPU::PeekMemory(uint32 address)
  address &= addr_mask[address >> 29];
 
  if(address >= 0x1F800000 && address <= 0x1F8003FF)
-  return ScratchRAM.Read<T>(address & 0x3FF);
+  return ScratchRAM->Read<T>(address & 0x3FF);
 
  //assert(!(CP0.SR & 0x10000));
 
@@ -331,7 +331,7 @@ void PS_CPU::PokeMemory(uint32 address, T value)
  address &= addr_mask[address >> 29];
 
  if(address >= 0x1F800000 && address <= 0x1F8003FF)
-  return ScratchRAM.Write<T>(address & 0x3FF, value);
+  return ScratchRAM->Write<T>(address & 0x3FF, value);
 
  if(sizeof(T) == 1)
   PSX_MemPoke8(address, value);
@@ -396,9 +396,9 @@ INLINE T PS_CPU::ReadMemory(pscpu_timestamp_t &timestamp, uint32 address, bool D
   LDAbsorb = 0;
 
   if(DS24)
-   return ScratchRAM.ReadU24(address & 0x3FF);
+   return ScratchRAM->ReadU24(address & 0x3FF);
   else
-   return ScratchRAM.Read<T>(address & 0x3FF);
+   return ScratchRAM->Read<T>(address & 0x3FF);
  }
 
  timestamp += (ReadFudge >> 4) & 2;
@@ -440,9 +440,9 @@ INLINE void PS_CPU::WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, ui
   if(address >= 0x1F800000 && address <= 0x1F8003FF)
   {
    if(DS24)
-    ScratchRAM.WriteU24(address & 0x3FF, value);
+    ScratchRAM->WriteU24(address & 0x3FF, value);
    else
-    ScratchRAM.Write<T>(address & 0x3FF, value);
+    ScratchRAM->Write<T>(address & 0x3FF, value);
 
    return;
   }
@@ -483,9 +483,9 @@ INLINE void PS_CPU::WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, ui
   if((BIU & 0x081) == 0x080)	// Writes to the scratchpad(TODO test)
   {
    if(DS24)
-    ScratchRAM.WriteU24(address & 0x3FF, value);
+    ScratchRAM->WriteU24(address & 0x3FF, value);
    else
-    ScratchRAM.Write<T>(address & 0x3FF, value);
+    ScratchRAM->Write<T>(address & 0x3FF, value);
   }
   //printf("IsC WRITE%d 0x%08x 0x%08x -- CP0.SR=0x%08x\n", (int)sizeof(T), address, value, CP0.SR);
  }
@@ -3090,9 +3090,9 @@ u32 hash_calculate(const void *buffer, u32 count)
 
 void PS_CPU::print_for_big_ass_debugger(int32_t timestamp, uint32_t PC)
 {
-	uint8_t *psxM = (uint8_t *) MainRAM.data8;
+	uint8_t *psxM = (uint8_t *) MainRAM->data8;
 	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
-	uint8_t *psxH = (uint8_t *) ScratchRAM.data8;
+	uint8_t *psxH = (uint8_t *) ScratchRAM->data8;
 
 	unsigned int i;
 	//extern int lightrec_very_debug;
@@ -3152,10 +3152,10 @@ void PS_CPU::cop_mtc_ctc(struct lightrec_state *state,
 			break;
 		case 12: /* Status */
 			if ((CP0.SR & ~value) & (1 << 16)) {
-				memcpy(MainRAM.data8, cache_buf, sizeof(cache_buf));
+				memcpy(MainRAM->data8, cache_buf, sizeof(cache_buf));
 				lightrec_invalidate_all(state);
 			} else if ((~CP0.SR & value) & (1 << 16)) {
-				memcpy(cache_buf, MainRAM.data8, sizeof(cache_buf));
+				memcpy(cache_buf, MainRAM->data8, sizeof(cache_buf));
 			}
 
 			CP0.SR = value & ~( (0x3 << 26) | (0x3 << 23) | (0x3 << 6));
@@ -3416,12 +3416,17 @@ int PS_CPU::lightrec_plugin_init()
 	if(lightrec_state)
 		lightrec_destroy(lightrec_state);
 
-	uint8_t *psxM = (uint8_t *) MainRAM.data8;
+	uint8_t *psxM = (uint8_t *) MainRAM->data8;
 	uint8_t *psxR = (uint8_t *) BIOSROM->data8;
-	uint8_t *psxH = (uint8_t *) ScratchRAM.data8;
+	uint8_t *psxH = (uint8_t *) ScratchRAM->data8;
 	uint8_t *psxP = (uint8_t *) PIOMem->data8;
 
 	lightrec_map[PSX_MAP_KERNEL_USER_RAM].address = psxM;
+#ifdef HAVE_SHM
+	lightrec_map[PSX_MAP_MIRROR1].address = psxM + 0x200000;
+	lightrec_map[PSX_MAP_MIRROR2].address = psxM + 0x400000;
+	lightrec_map[PSX_MAP_MIRROR3].address = psxM + 0x600000;
+#endif
 	lightrec_map[PSX_MAP_BIOS].address = psxR;
 	lightrec_map[PSX_MAP_SCRATCH_PAD].address = psxH;
 	lightrec_map[PSX_MAP_PARALLEL_PORT].address = psxP;

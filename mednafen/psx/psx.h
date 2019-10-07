@@ -101,7 +101,8 @@ extern PS_CPU *PSX_CPU;
 extern PS_CDC *PSX_CDC;
 extern PS_SPU *PSX_SPU;
 extern MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM;
-extern MultiAccessSizeMem<2048 * 1024, uint32_t, false> MainRAM;
+extern MultiAccessSizeMem<2048 * 1024, uint32_t, false> *MainRAM;
+extern MultiAccessSizeMem<1024, uint32_t, false> *ScratchRAM;
 extern MultiAccessSizeMem<65536, uint32_t, false> *PIOMem;
 
 #ifdef HAVE_LIGHTREC

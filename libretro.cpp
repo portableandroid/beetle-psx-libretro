@@ -28,6 +28,14 @@
 #include <vector>
 #define ISHEXDEC ((codeLine[cursor]>='0') && (codeLine[cursor]<='9')) || ((codeLine[cursor]>='a') && (codeLine[cursor]<='f')) || ((codeLine[cursor]>='A') && (codeLine[cursor]<='F'))
 
+#ifdef HAVE_LIGHTREC
+#include <sys/mman.h>
+#endif
+
+#ifdef HAVE_SHM
+#include <fcntl.h>
+#endif
+
 //Fast Save States exclude string labels from variables in the savestate, and are at least 20% faster.
 extern bool FastSaveStates;
 const int DEFAULT_STATE_SIZE = 16 * 1024 * 1024;
@@ -61,7 +69,12 @@ bool cd_async = false;
 bool cd_warned_slow = false;
 int64 cd_slow_timeout = 8000; // microseconds
 
+#ifdef HAVE_LIGHTREC
 bool psx_dynarec;
+uint8 *psx_mem;
+uint8 *psx_bios;
+uint8 *psx_scratch;
+#endif
 
 // CPU overclock factor (or 0 if disabled)
 int32_t psx_overclock_factor = 0;
@@ -350,8 +363,8 @@ FrontIO *PSX_FIO = NULL;
 
 MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM = NULL;
 MultiAccessSizeMem<65536, uint32, false> *PIOMem = NULL;
-
-MultiAccessSizeMem<2048 * 1024, uint32, false> MainRAM;
+MultiAccessSizeMem<2048 * 1024, uint32, false> *MainRAM = NULL;
+MultiAccessSizeMem<1024, uint32, false> *ScratchRAM = NULL;
 
 static uint32_t TextMem_Start;
 static std::vector<uint8> TextMem;
@@ -600,16 +613,16 @@ template<typename T, bool IsWrite, bool Access24> static INLINE void MemRW(int32
       if(Access24)
       {
          if(IsWrite)
-            MainRAM.WriteU24(A & 0x1FFFFF, V);
+            MainRAM->WriteU24(A & 0x1FFFFF, V);
          else
-            V = MainRAM.ReadU24(A & 0x1FFFFF);
+            V = MainRAM->ReadU24(A & 0x1FFFFF);
       }
       else
       {
          if(IsWrite)
-            MainRAM.Write<T>(A & 0x1FFFFF, V);
+            MainRAM->Write<T>(A & 0x1FFFFF, V);
          else
-            V = MainRAM.Read<T>(A & 0x1FFFFF);
+            V = MainRAM->Read<T>(A & 0x1FFFFF);
       }
 
       return;
@@ -960,8 +973,8 @@ template<typename T, bool Access24> static INLINE uint32_t MemPeek(int32_t times
    if(A < 0x00800000)
    {
       if(Access24)
-         return(MainRAM.ReadU24(A & 0x1FFFFF));
-      return(MainRAM.Read<T>(A & 0x1FFFFF));
+         return(MainRAM->ReadU24(A & 0x1FFFFF));
+      return(MainRAM->Read<T>(A & 0x1FFFFF));
    }
 
    if(A >= 0x1FC00000 && A <= 0x1FC7FFFF)
@@ -1100,7 +1113,7 @@ static void PSX_Power(void)
 
    cd_warned_slow = false;
 
-   memset(MainRAM.data32, 0, 2048 * 1024);
+   memset(MainRAM->data32, 0, 2048 * 1024);
 
    for(i = 0; i < 9; i++)
       SysControl.Regs[i] = 0;
@@ -1130,9 +1143,9 @@ template<typename T, bool Access24> static INLINE void MemPoke(pscpu_timestamp_t
    if(A < 0x00800000)
    {
       if(Access24)
-         MainRAM.WriteU24(A & 0x1FFFFF, V);
+         MainRAM->WriteU24(A & 0x1FFFFF, V);
       else
-         MainRAM.Write<T>(A & 0x1FFFFF, V);
+         MainRAM->Write<T>(A & 0x1FFFFF, V);
 
       return;
    }
@@ -1508,6 +1521,172 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
     PSX_CDC->SetDisc(CD_TrayOpen, cdif, disc_id);
 }
 
+#ifdef HAVE_LIGHTREC
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+static const uintptr_t supported_io_bases[] = {
+	0x0,
+	0x10000000,
+	0x80000000,
+};
+
+int lightrec_init_mmap()
+{
+#ifdef HAVE_SHM
+	unsigned int i, j;
+	uintptr_t base;
+	int err, memfd;
+	void *map;
+
+	memfd = shm_open("/lightrec_memfd",
+			 O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
+	if (memfd < 0) {
+		err = -errno;
+		fprintf(stderr, "Failed to create SHM: %d\n", err);
+		return err;
+	}
+
+	err = ftruncate(memfd, 0x280400);
+	if (err < 0) {
+		err = -errno;
+		fprintf(stderr, "Could not trim SHM: %d\n", err);
+		goto err_close_memfd;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
+		base = supported_io_bases[i];
+
+		for (j = 0; j < 4; j++) {
+			map = mmap((void *)(base + j * 0x200000),
+				   0x200000, PROT_READ | PROT_WRITE,
+				   MAP_SHARED | MAP_FIXED_NOREPLACE, memfd, 0);
+			if (map == MAP_FAILED)
+				break;
+		}
+
+		/* Impossible to map using this base */
+		if (j == 0)
+			continue;
+
+		/* All mirrors mapped - we got a match! */
+		if (j == 4)
+			break;
+
+		/* Only some mirrors mapped - clean the mess and try again */
+		for (; j > 0; j--)
+			munmap((void *)(base + (j - 1) * 0x200000), 0x200000);
+	}
+
+	if (i == ARRAY_SIZE(supported_io_bases)) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap RAM and mirrors\n");
+		goto err_close_memfd;
+	}
+
+	psx_mem = (uint8 *)base;
+
+	map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
+		   MAP_PRIVATE | MAP_FIXED_NOREPLACE, memfd, 0x200000);
+	if (map == MAP_FAILED) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap BIOS\n");
+		goto err_unmap;
+	}
+
+	psx_bios = (uint8 *)map;
+
+	map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
+		   MAP_PRIVATE | MAP_FIXED_NOREPLACE, memfd, 0x280000);
+	if (map == MAP_FAILED) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap scratchpad\n");
+		goto err_unmap_bios;
+	}
+
+	psx_scratch = (uint8 *)map;
+
+	close(memfd);
+	return 0;
+
+err_unmap_bios:
+	munmap(psx_bios, 0x80000);
+err_unmap:
+	for (j = 0; j < 4; j++)
+		munmap((void *)((uintptr_t)psx_mem + j * 0x200000), 0x200000);
+err_close_memfd:
+	close(memfd);
+	return err;
+#else
+	unsigned int i;
+	uintptr_t base;
+	int err;
+	void *map;
+
+	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
+		base = supported_io_bases[i];
+
+		map = mmap((void *)base, 0x200000, PROT_READ | PROT_WRITE,
+			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+
+		if (map != MAP_FAILED)
+			break;
+	}
+
+	if(i == ARRAY_SIZE(supported_io_bases)) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap RAM\n");
+		goto err;
+	}
+
+	psx_mem = (uint8 *)base;
+
+	map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
+		   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+	if (map == MAP_FAILED) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap BIOS\n");
+		goto err_unmap;
+	}
+
+	psx_bios = (uint8 *)map;
+
+	map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
+		   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+	if (map == MAP_FAILED) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap scratchpad\n");
+		goto err_unmap_bios;
+	}
+
+	psx_scratch = (uint8 *)map;
+
+	return 0;
+
+err_unmap_bios:
+	munmap(psx_bios, 0x80000);
+err_unmap:
+	munmap(psx_mem, 0x200000);
+err:
+	return err;
+#endif
+}
+
+void lightrec_free_mmap()
+{
+	unsigned int i = 0;
+
+	munmap(psx_scratch, 0x400);
+	munmap(psx_bios, 0x80000);
+
+#ifdef HAVE_SHM
+	for (i = 0; i < 4; i++)
+#endif
+		munmap((void *)((uintptr_t)psx_mem + i * 0x200000), 0x200000);
+}
+#endif
+
 static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMemcards = true, const bool WantPIOMem = false)
 {
    unsigned region, i;
@@ -1596,8 +1775,18 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    PSX_CDC->SetDisc(true, NULL, NULL);
    SetDiscWrapper(CD_TrayOpen);
 
+#ifdef HAVE_LIGHTREC
+   lightrec_init_mmap();
 
+   MainRAM = new(psx_mem) MultiAccessSizeMem<2048 * 1024, uint32, false>();
+   ScratchRAM = new(psx_scratch) MultiAccessSizeMem<1024, uint32, false>();
+   BIOSROM = new(psx_bios) MultiAccessSizeMem<512 * 1024, uint32, false>();
+#else
+   MainRAM = new MultiAccessSizeMem<2048 * 1024, uint32, false>();
+   ScratchRAM = new MultiAccessSizeMem<1024, uint32, false>();
    BIOSROM = new MultiAccessSizeMem<512 * 1024, uint32, false>();
+#endif
+
    PIOMem  = NULL;
 
 #ifdef HAVE_LIGHTREC
@@ -1609,9 +1798,9 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
 
    for(uint32_t ma = 0x00000000; ma < 0x00800000; ma += 2048 * 1024)
    {
-      PSX_CPU->SetFastMap(MainRAM.data32, 0x00000000 + ma, 2048 * 1024);
-      PSX_CPU->SetFastMap(MainRAM.data32, 0x80000000 + ma, 2048 * 1024);
-      PSX_CPU->SetFastMap(MainRAM.data32, 0xA0000000 + ma, 2048 * 1024);
+      PSX_CPU->SetFastMap(MainRAM->data32, 0x00000000 + ma, 2048 * 1024);
+      PSX_CPU->SetFastMap(MainRAM->data32, 0x80000000 + ma, 2048 * 1024);
+      PSX_CPU->SetFastMap(MainRAM->data32, 0xA0000000 + ma, 2048 * 1024);
    }
 
    PSX_CPU->SetFastMap(BIOSROM->data32, 0x1FC00000, 512 * 1024);
@@ -1627,7 +1816,7 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
 
 
    MDFNMP_Init(1024, ((uint64)1 << 29) / 1024);
-   MDFNMP_AddRAM(2048 * 1024, 0x00000000, MainRAM.data8);
+   MDFNMP_AddRAM(2048 * 1024, 0x00000000, MainRAM->data8);
 #if 0
    MDFNMP_AddRAM(1024, 0x1F800000, ScratchRAM.data8);
 #endif
@@ -1927,9 +2116,24 @@ static void Cleanup(void)
 
    DMA_Kill();
 
+#ifdef HAVE_LIGHTREC
+   MainRAM = NULL;
+   ScratchRAM = NULL;
+   BIOSROM = NULL;
+   lightrec_free_mmap();
+#else
+   if(MainRAM)
+      delete MainRAM;
+   MainRAM = NULL;
+
+   if(ScratchRAM)
+      delete ScratchRAM;
+   ScratchRAM = NULL;
+
    if(BIOSROM)
       delete BIOSROM;
    BIOSROM = NULL;
+#endif
 
    if(PIOMem)
       delete PIOMem;
@@ -2025,7 +2229,7 @@ int StateAction(StateMem *sm, int load, int data_only)
    {
       SFVAR(CD_TrayOpen),
       SFVAR(CD_SelectedDisc),
-      SFARRAY(MainRAM.data8, 1024 * 2048),
+      SFARRAY(MainRAM->data8, 1024 * 2048),
       SFARRAY32(SysControl.Regs, 9),
       SFVAR(PSX_PRNG.lcgo),
       SFVAR(PSX_PRNG.x),
@@ -4198,7 +4402,7 @@ void *retro_get_memory_data(unsigned type)
    switch (type)
    {
       case RETRO_MEMORY_SYSTEM_RAM:
-         return MainRAM.data8;
+         return MainRAM->data8;
       case RETRO_MEMORY_SAVE_RAM:
          if (use_mednafen_memcard0_method)
             return NULL;

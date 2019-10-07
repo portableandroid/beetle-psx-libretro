@@ -216,8 +216,6 @@ class PS_CPU
   uint32 ICache_Bulk[2048];
  };
 
-   MultiAccessSizeMem<1024, uint32, false> ScratchRAM;
-
  //PS_GTE GTE;
 
  uintptr_t FastMap[1 << (32 - FAST_MAP_SHIFT)];
