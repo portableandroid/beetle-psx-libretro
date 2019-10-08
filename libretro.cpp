@@ -1527,7 +1527,6 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 #endif
 
 static const uintptr_t supported_io_bases[] = {
-	0x0,
 	0x10000000,
 	0x80000000,
 };
