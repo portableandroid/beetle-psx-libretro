@@ -136,6 +136,8 @@ bool opcode_writes_register(union code op, u8 reg)
 		default:
 			return false;
 		}
+	case OP_META_MOV:
+		return op.r.rd == reg;
 	default:
 		return false;
 	}
@@ -243,8 +245,224 @@ bool load_in_delay_slot(union code op)
 	return false;
 }
 
-static int lightrec_transform_ops(struct opcode *list)
+static u32 lightrec_propagate_consts(union code c, u32 known, u32 *v)
 {
+	switch (c.i.op) {
+	case OP_SPECIAL:
+		switch (c.r.op) {
+		case OP_SPECIAL_SLL:
+			if (known & BIT(c.r.rt)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] << c.r.imm;
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SRL:
+			if (known & BIT(c.r.rt)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] >> c.r.imm;
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SRA:
+			if (known & BIT(c.r.rt)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = (s32)v[c.r.rt] >> c.r.imm;
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SLLV:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] << (v[c.r.rs] & 0x1f);
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SRLV:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] >> (v[c.r.rs] & 0x1f);
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SRAV:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = (s32)v[c.r.rt]
+					  >> (v[c.r.rs] & 0x1f);
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_ADD:
+		case OP_SPECIAL_ADDU:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = (s32)v[c.r.rt] + (s32)v[c.r.rs];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SUB:
+		case OP_SPECIAL_SUBU:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] - v[c.r.rs];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_AND:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] & v[c.r.rs];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_OR:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] | v[c.r.rs];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_XOR:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rt] ^ v[c.r.rs];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_NOR:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = ~(v[c.r.rt] | v[c.r.rs]);
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SLT:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = (s32)v[c.r.rs] < (s32)v[c.r.rt];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		case OP_SPECIAL_SLTU:
+			if (known & BIT(c.r.rt) && known & BIT(c.r.rs)) {
+				known |= BIT(c.r.rd);
+				v[c.r.rd] = v[c.r.rs] < v[c.r.rt];
+			} else {
+				known &= ~BIT(c.r.rd);
+			}
+			break;
+		default:
+			break;
+		}
+		break;
+	case OP_REGIMM:
+		break;
+	case OP_ADDI:
+	case OP_ADDIU:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = v[c.i.rs] + (s32)(s16)c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_SLTI:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = (s32)v[c.i.rs] < (s32)(s16)c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_SLTIU:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = v[c.i.rs] < (u32)(s32)(s16)c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_ANDI:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = v[c.i.rs] & c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_ORI:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = v[c.i.rs] | c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_XORI:
+		if (known & BIT(c.i.rs)) {
+			known |= BIT(c.i.rt);
+			v[c.i.rt] = v[c.i.rs] ^ c.i.imm;
+		} else {
+			known &= ~BIT(c.i.rt);
+		}
+		break;
+	case OP_LUI:
+		known |= BIT(c.i.rt);
+		v[c.i.rt] = c.i.imm << 16;
+		break;
+	case OP_CP0:
+		switch (c.r.rs) {
+		case OP_CP0_MFC0:
+		case OP_CP0_CFC0:
+			known &= ~BIT(c.r.rt);
+			break;
+		}
+		break;
+	case OP_CP2:
+		if (c.r.op == OP_CP2_BASIC) {
+			switch (c.r.rs) {
+			case OP_CP2_BASIC_MFC2:
+			case OP_CP2_BASIC_CFC2:
+				known &= ~BIT(c.r.rt);
+				break;
+			}
+		}
+		break;
+	case OP_LB:
+	case OP_LH:
+	case OP_LWL:
+	case OP_LW:
+	case OP_LBU:
+	case OP_LHU:
+	case OP_LWR:
+	case OP_LWC2:
+		known &= ~BIT(c.i.rt);
+		break;
+	default:
+		break;
+	}
+
+	return known;
+}
+
+static int lightrec_transform_ops(struct block *block)
+{
+	struct opcode *list = block->opcode_list;
+
 	for (; list; list = list->next) {
 
 		/* Transform all opcodes detected as useless to real NOPs
@@ -256,9 +474,9 @@ static int lightrec_transform_ops(struct opcode *list)
 			continue;
 		}
 
+		switch (list->i.op) {
 		/* Transform BEQ / BNE to BEQZ / BNEZ meta-opcodes if one of the
 		 * two registers is zero. */
-		switch (list->i.op) {
 		case OP_BEQ:
 			if ((list->i.rs == 0) ^ (list->i.rt == 0)) {
 				list->i.op = OP_META_BEQZ;
@@ -277,7 +495,38 @@ static int lightrec_transform_ops(struct opcode *list)
 				list->i.op = OP_META_BNEZ;
 			}
 			break;
-		default:
+
+		/* Transform ORI/ADDI/ADDIU with imm #0 or ORR/ADD/ADDU/SUB/SUBU
+		 * with register $zero to the MOV meta-opcode */
+		case OP_ORI:
+		case OP_ADDI:
+		case OP_ADDIU:
+			if (list->i.imm == 0) {
+				pr_debug("Convert ORI/ADDI/ADDIU #0 to MOV\n");
+				list->i.op = OP_META_MOV;
+				list->r.rd = list->i.rt;
+			}
+			break;
+		case OP_SPECIAL:
+			switch (list->r.op) {
+			case OP_SPECIAL_OR:
+			case OP_SPECIAL_ADD:
+			case OP_SPECIAL_ADDU:
+				if (list->r.rs == 0) {
+					pr_debug("Convert OR/ADD $zero to MOV\n");
+					list->i.op = OP_META_MOV;
+					list->r.rs = list->r.rt;
+				}
+			case OP_SPECIAL_SUB: /* fall-through */
+			case OP_SPECIAL_SUBU:
+				if (list->r.rt == 0) {
+					pr_debug("Convert OR/ADD/SUB $zero to MOV\n");
+					list->i.op = OP_META_MOV;
+				}
+			default: /* fall-through */
+				break;
+			}
+		default: /* fall-through */
 			break;
 		}
 	}
@@ -285,12 +534,13 @@ static int lightrec_transform_ops(struct opcode *list)
 	return 0;
 }
 
-static int lightrec_switch_delay_slots(struct opcode *list)
+static int lightrec_switch_delay_slots(struct block *block)
 {
+	struct opcode *list;
 	u8 flags;
 	int ret;
 
-	for (; list->next; list = list->next) {
+	for (list = block->opcode_list; list->next; list = list->next) {
 		union code op = list->c;
 		union code next_op = list->next->c;
 
@@ -412,8 +662,9 @@ static int lightrec_add_unload(struct opcode *op, u8 reg)
 	return 0;
 }
 
-static int lightrec_early_unload(struct opcode *list)
+static int lightrec_early_unload(struct block *block)
 {
+	struct opcode *list = block->opcode_list;
 	u8 i;
 
 	for (i = 1; i < 34; i++) {
@@ -453,21 +704,44 @@ static int lightrec_early_unload(struct opcode *list)
 	return 0;
 }
 
-static int lightrec_flag_stores(struct opcode *list)
+static int lightrec_flag_stores(struct block *block)
 {
-	/* Mark all store operations that target $sp, $gp, $k0 or $k1 as not
-	 * requiring code invalidation. This is based on the heuristic that
-	 * stores using one of these registers as address will never hit a code
-	 * page. */
-	for (; list; list = list->next) {
+	struct opcode *list;
+	u32 known = BIT(0);
+	u32 values[32] = { 0 };
+	int ret;
+
+	for (list = block->opcode_list; list; list = list->next) {
+		known = lightrec_propagate_consts(list->c, known, values);
+
+		/* Register $zero is always, well, zero */
+		known |= BIT(0);
+		values[0] = 0;
+
 		switch (list->i.op) {
 		case OP_SB:
 		case OP_SH:
 		case OP_SW:
+			/* Mark all store operations that target $sp, $gp, $k0
+			 * or $k1 as not requiring code invalidation. This is
+			 * based on the heuristic that stores using one of these
+			 * registers as address will never hit a code page. */
 			if (list->i.rs >= 26 && list->i.rs <= 29) {
 				pr_debug("Flaging opcode 0x%08x as not requiring invalidation\n",
 					 list->opcode);
 				list->flags |= LIGHTREC_NO_INVALIDATE;
+			}
+
+			/* Detect writes whose destination address is inside the
+			 * current block, using constant propagation. When these
+			 * occur, we mark the blocks as not compilable. */
+			if ((known & BIT(list->i.rs)) &&
+			    kunseg(values[list->i.rs]) >= block->kunseg_pc &&
+			    kunseg(values[list->i.rs]) < (block->kunseg_pc +
+							  block->nb_ops * 4)) {
+				pr_debug("Self-modifying block detected\n");
+				block->flags |= BLOCK_NEVER_COMPILE;
+				list->flags |= LIGHTREC_SMC;
 			}
 		default: /* fall-through */
 			break;
@@ -477,19 +751,19 @@ static int lightrec_flag_stores(struct opcode *list)
 	return 0;
 }
 
-static int (*lightrec_optimizers[])(struct opcode *) = {
+static int (*lightrec_optimizers[])(struct block *) = {
 	&lightrec_transform_ops,
 	&lightrec_switch_delay_slots,
 	&lightrec_early_unload,
 	&lightrec_flag_stores,
 };
 
-int lightrec_optimize(struct opcode *list)
+int lightrec_optimize(struct block *block)
 {
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(lightrec_optimizers); i++) {
-		int ret = lightrec_optimizers[i](list);
+		int ret = lightrec_optimizers[i](block);
 
 		if (ret)
 			return ret;

@@ -23,6 +23,7 @@
 #define LIGHTREC_DIRECT_IO	(1 << 0)
 #define LIGHTREC_NO_INVALIDATE	(1 << 1)
 #define LIGHTREC_NO_DS		(1 << 2)
+#define LIGHTREC_SMC		(1 << 3)
 
 struct block;
 
@@ -64,6 +65,8 @@ enum standard_opcodes {
 
 	OP_META_BEQZ		= 0x14,
 	OP_META_BNEZ		= 0x15,
+
+	OP_META_MOV		= 0x16,
 };
 
 enum special_opcodes {

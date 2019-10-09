@@ -489,7 +489,22 @@ static u32 int_load(struct interpreter *inter)
 
 static u32 int_store(struct interpreter *inter)
 {
-	return int_io(inter, false);
+	u32 next_pc;
+
+	if (likely(!(inter->op->flags & LIGHTREC_SMC)))
+		return int_io(inter, false);
+
+	lightrec_rw(inter->state, inter->op->c,
+		    inter->state->native_reg_cache[inter->op->i.rs],
+		    inter->state->native_reg_cache[inter->op->i.rt],
+		    &inter->op->flags);
+
+	next_pc = inter->block->pc + (inter->op->offset + 1) * 4;
+
+	/* Invalidate next PC, to force the rest of the block to be rebuilt */
+	lightrec_invalidate(inter->state, next_pc, 4);
+
+	return next_pc;
 }
 
 static u32 int_LWC2(struct interpreter *inter)
@@ -791,6 +806,17 @@ static u32 int_META_UNLOAD(struct interpreter *inter)
 	JUMP_SKIP(inter);
 }
 
+static u32 int_META_MOV(struct interpreter *inter)
+{
+	u32 *reg_cache = inter->state->native_reg_cache;
+	struct opcode_r *op = &inter->op->r;
+
+	if (likely(op->rd))
+		reg_cache[op->rd] = reg_cache[op->rs];
+
+	JUMP_NEXT(inter);
+}
+
 static const lightrec_int_func_t int_standard[64] = {
 	[OP_SPECIAL]		= int_SPECIAL,
 	[OP_REGIMM]		= int_REGIMM,
@@ -828,6 +854,7 @@ static const lightrec_int_func_t int_standard[64] = {
 	[OP_META_REG_UNLOAD]	= int_META_UNLOAD,
 	[OP_META_BEQZ]		= int_BEQ,
 	[OP_META_BNEZ]		= int_BNE,
+	[OP_META_MOV]		= int_META_MOV,
 };
 
 static const lightrec_int_func_t int_special[64] = {
