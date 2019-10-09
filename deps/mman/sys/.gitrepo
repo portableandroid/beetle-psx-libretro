@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/witwall/mman-win32.git
+	branch = master
+	commit = 9f115ad0b4c03e9356f5dd596deda0da6729a257
+	parent = 46303e2453e7131493538fae122ba1eba03ec4f7
+	method = merge
+	cmdver = 0.4.0
