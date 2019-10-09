@@ -1523,7 +1523,7 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 
 #ifdef HAVE_LIGHTREC
 #ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
+#define MAP_FIXED_NOREPLACE MAP_FIXED
 #endif
 
 static const uintptr_t supported_io_bases[] = {
