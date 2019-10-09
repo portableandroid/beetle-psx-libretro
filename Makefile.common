@@ -155,6 +155,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
 
    ifneq (,$(findstring win,$(platform)))
        FLAGS += -DLIGHTREC_STATIC=1
+       INCFLAGS += -isystem$(DEPS_DIR)/mman
    endif
 
    INCFLAGS += -I$(DEPS_DIR)/lightning/include \
@@ -375,6 +376,10 @@ ifeq ($(HAVE_LIGHTREC), 1)
 
    ifeq ($(DEBUG), 0)
        SOURCES_C +=   $(DEPS_DIR)/lightrec/recompiler.c
+   endif
+
+   ifneq (,$(findstring win,$(platform)))
+       SOURCES_C +=   $(DEPS_DIR)/mman/sys/mman.c
    endif
 
 endif ##ifeq ($(HAVE_LIGHTREC), 1)
