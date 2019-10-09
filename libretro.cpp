@@ -1639,7 +1639,7 @@ err_close_memfd:
 		goto err;
 	}
 
-	psx_mem = (uint8 *)base;
+	psx_mem = (uint8 *)map;
 
 	map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
 		   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
