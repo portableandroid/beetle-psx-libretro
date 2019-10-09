@@ -1775,16 +1775,19 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    SetDiscWrapper(CD_TrayOpen);
 
 #ifdef HAVE_LIGHTREC
-   lightrec_init_mmap();
-
-   MainRAM = new(psx_mem) MultiAccessSizeMem<2048 * 1024, uint32, false>();
-   ScratchRAM = new(psx_scratch) MultiAccessSizeMem<1024, uint32, false>();
-   BIOSROM = new(psx_bios) MultiAccessSizeMem<512 * 1024, uint32, false>();
-#else
-   MainRAM = new MultiAccessSizeMem<2048 * 1024, uint32, false>();
-   ScratchRAM = new MultiAccessSizeMem<1024, uint32, false>();
-   BIOSROM = new MultiAccessSizeMem<512 * 1024, uint32, false>();
+   if(lightrec_init_mmap() == 0)
+   {
+      MainRAM = new(psx_mem) MultiAccessSizeMem<2048 * 1024, uint32, false>();
+      ScratchRAM = new(psx_scratch) MultiAccessSizeMem<1024, uint32, false>();
+      BIOSROM = new(psx_bios) MultiAccessSizeMem<512 * 1024, uint32, false>();
+   }
+   else
 #endif
+   {
+      MainRAM = new MultiAccessSizeMem<2048 * 1024, uint32, false>();
+      ScratchRAM = new MultiAccessSizeMem<1024, uint32, false>();
+      BIOSROM = new MultiAccessSizeMem<512 * 1024, uint32, false>();
+   }
 
    PIOMem  = NULL;
 
