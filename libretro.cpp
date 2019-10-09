@@ -1527,6 +1527,7 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 #endif
 
 static const uintptr_t supported_io_bases[] = {
+	0x0,
 	0x10000000,
 	0x80000000,
 };
@@ -1563,6 +1564,12 @@ int lightrec_init_mmap()
 				   MAP_SHARED | MAP_FIXED_NOREPLACE, memfd, 0);
 			if (map == MAP_FAILED)
 				break;
+			else if (map != (void *)(base + j * 0x200000))
+			{
+				//not at expected address, reject it
+				munmap(map, 0x200000);
+				break;
+			}
 		}
 
 		/* Impossible to map using this base */
