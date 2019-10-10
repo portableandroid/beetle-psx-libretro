@@ -1527,8 +1527,14 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 #endif
 
 static const uintptr_t supported_io_bases[] = {
-	0x0,
+	0x00000000,
 	0x10000000,
+	0x20000000,
+	0x30000000,
+	0x40000000,
+	0x50000000,
+	0x60000000,
+	0x70000000,
 	0x80000000,
 };
 
@@ -1635,47 +1641,37 @@ err_close_memfd:
 
 		map = mmap((void *)base, 0x200000, PROT_READ | PROT_WRITE,
 			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+		if (map == MAP_FAILED)
+			continue;
 
-		if (map != MAP_FAILED)
-			break;
+		psx_mem = (uint8 *)map;
+
+		map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
+			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+		if (map == MAP_FAILED) {
+			goto err_unmap;
+		}
+
+		psx_bios = (uint8 *)map;
+
+		map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
+			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+		if (map == MAP_FAILED) {
+			goto err_unmap_bios;
+		}
+
+		psx_scratch = (uint8 *)map;
+
+		return 0;
+
+	err_unmap_bios:
+		munmap(psx_bios, 0x80000);
+	err_unmap:
+		munmap(psx_mem, 0x200000);
 	}
 
-	if(i == ARRAY_SIZE(supported_io_bases)) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap RAM\n");
-		goto err;
-	}
-
-	psx_mem = (uint8 *)map;
-
-	map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
-		   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
-	if (map == MAP_FAILED) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap BIOS\n");
-		goto err_unmap;
-	}
-
-	psx_bios = (uint8 *)map;
-
-	map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
-		   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
-	if (map == MAP_FAILED) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap scratchpad\n");
-		goto err_unmap_bios;
-	}
-
-	psx_scratch = (uint8 *)map;
-
-	return 0;
-
-err_unmap_bios:
-	munmap(psx_bios, 0x80000);
-err_unmap:
-	munmap(psx_mem, 0x200000);
-err:
-	return err;
+	fprintf(stderr, "Unable to mmap RAM/ROM, dynarec will be slower\n");
+	return -EINVAL;
 #endif
 }
 
