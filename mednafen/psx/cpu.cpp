@@ -3422,7 +3422,7 @@ int PS_CPU::lightrec_plugin_init()
 	uint8_t *psxP = (uint8_t *) PIOMem->data8;
 
 	lightrec_map[PSX_MAP_KERNEL_USER_RAM].address = psxM;
-#ifdef HAVE_SHM
+#if defined(HAVE_SHM) || defined(HAVE_WIN_SHM)
 	lightrec_map[PSX_MAP_MIRROR1].address = psxM + 0x200000;
 	lightrec_map[PSX_MAP_MIRROR2].address = psxM + 0x400000;
 	lightrec_map[PSX_MAP_MIRROR3].address = psxM + 0x600000;

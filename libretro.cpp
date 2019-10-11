@@ -36,6 +36,10 @@
 #include <fcntl.h>
 #endif
 
+#ifdef HAVE_WIN_SHM
+#include <windows.h>
+#endif
+
 //Fast Save States exclude string labels from variables in the savestate, and are at least 20% faster.
 extern bool FastSaveStates;
 const int DEFAULT_STATE_SIZE = 16 * 1024 * 1024;
@@ -1630,6 +1634,85 @@ err_unmap:
 err_close_memfd:
 	close(memfd);
 	return err;
+#elif defined(HAVE_WIN_SHM)
+	unsigned int i, j;
+	uintptr_t base;
+	int err;
+	HANDLE memfd;
+	void *map;
+
+	memfd = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0x280400, NULL);
+	if (memfd == NULL) {
+		err = GetLastError();
+		fprintf(stderr, "Failed to create WIN_SHM: %d\n", err);
+		return err;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
+		base = supported_io_bases[i];
+
+		for (j = 0; j < 4; j++) {
+			map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0, 0x200000, (void *)(base + j * 0x200000));
+			if (map == NULL)
+				break;
+			else if (map != (void *)(base + j * 0x200000))
+			{
+				//not at expected address, reject it
+				UnmapViewOfFile(map);
+				break;
+			}
+		}
+
+		/* Impossible to map using this base */
+		if (j == 0)
+			continue;
+
+		/* All mirrors mapped - we got a match! */
+		if (j == 4)
+			break;
+
+		/* Only some mirrors mapped - clean the mess and try again */
+		for (; j > 0; j--)
+			UnmapViewOfFile((void *)(base + (j - 1) * 0x200000));
+	}
+
+	if (i == ARRAY_SIZE(supported_io_bases)) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap RAM and mirrors\n");
+		goto err_close_memfd;
+	}
+
+	psx_mem = (uint8 *)base;
+
+	map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x200000, 0x80000, (void *)(base + 0x1fc00000));
+	if (map == NULL) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap BIOS\n");
+		goto err_unmap;
+	}
+
+	psx_bios = (uint8 *)map;
+
+	map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x280000, 0x400, (void *)(base + 0x1f800000));
+	if (map == NULL) {
+		err = -EINVAL;
+		fprintf(stderr, "Unable to mmap scratchpad\n");
+		goto err_unmap_bios;
+	}
+
+	psx_scratch = (uint8 *)map;
+
+	CloseHandle(memfd);
+	return 0;
+
+err_unmap_bios:
+	UnmapViewOfFile(psx_bios);
+err_unmap:
+	for (j = 0; j < 4; j++)
+		UnmapViewOfFile((void *)((uintptr_t)psx_mem + j * 0x200000));
+err_close_memfd:
+	CloseHandle(memfd);
+	return err;
 #else
 	unsigned int i;
 	uintptr_t base;
@@ -1682,7 +1765,7 @@ void lightrec_free_mmap()
 	munmap(psx_scratch, 0x400);
 	munmap(psx_bios, 0x80000);
 
-#ifdef HAVE_SHM
+#if defined(HAVE_SHM) || defined(HAVE_WIN_SHM)
 	for (i = 0; i < 4; i++)
 #endif
 		munmap((void *)((uintptr_t)psx_mem + i * 0x200000), 0x200000);

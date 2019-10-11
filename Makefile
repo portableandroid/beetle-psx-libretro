@@ -486,6 +486,10 @@ else
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -lopengl32
    endif
+
+   ifeq ($(HAVE_LIGHTREC), 1)
+      FLAGS += -DHAVE_WIN_SHM
+   endif
 endif
 
 include Makefile.common
