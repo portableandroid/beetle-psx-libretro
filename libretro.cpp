@@ -32,6 +32,12 @@
 #include <sys/mman.h>
 #endif
 
+#ifdef HAVE_ASHMEM
+#include <sys/ioctl.h>
+#include <linux/ashmem.h>
+#define HAVE_SHM 1
+#endif
+
 #ifdef HAVE_SHM
 #include <fcntl.h>
 #endif
@@ -78,6 +84,10 @@ bool psx_dynarec;
 uint8 *psx_mem;
 uint8 *psx_bios;
 uint8 *psx_scratch;
+#endif
+
+#ifdef HAVE_ASHMEM
+int memfd;
 #endif
 
 // CPU overclock factor (or 0 if disabled)
@@ -1547,10 +1557,16 @@ int lightrec_init_mmap()
 #ifdef HAVE_SHM
 	unsigned int i, j;
 	uintptr_t base;
-	int err, memfd;
+	int err;
 	void *map;
 
-	memfd = shm_open("/lightrec_memfd",
+#ifdef HAVE_ASHMEM
+	memfd = open("/dev/ashmem", O_RDWR);
+
+	ioctl(memfd, ASHMEM_SET_NAME, "lightrec_memfd");
+	ioctl(memfd, ASHMEM_SET_SIZE, 0x280400);
+#else
+	int memfd = shm_open("/lightrec_memfd",
 			 O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if (memfd < 0) {
 		err = -errno;
@@ -1564,6 +1580,7 @@ int lightrec_init_mmap()
 		fprintf(stderr, "Could not trim SHM: %d\n", err);
 		goto err_close_memfd;
 	}
+#endif
 
 	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
 		base = supported_io_bases[i];
@@ -1623,7 +1640,9 @@ int lightrec_init_mmap()
 
 	psx_scratch = (uint8 *)map;
 
+#ifndef HAVE_ASHMEM
 	close(memfd);
+#endif
 	return 0;
 
 err_unmap_bios:
@@ -1632,7 +1651,9 @@ err_unmap:
 	for (j = 0; j < 4; j++)
 		munmap((void *)((uintptr_t)psx_mem + j * 0x200000), 0x200000);
 err_close_memfd:
+#ifndef HAVE_ASHMEM
 	close(memfd);
+#endif
 	return err;
 #elif defined(HAVE_WIN_SHM)
 	unsigned int i, j;
@@ -1769,6 +1790,10 @@ void lightrec_free_mmap()
 	for (i = 0; i < 4; i++)
 #endif
 		munmap((void *)((uintptr_t)psx_mem + i * 0x200000), 0x200000);
+
+#ifdef HAVE_ASHMEM
+	close(memfd);
+#endif
 }
 #endif
 
