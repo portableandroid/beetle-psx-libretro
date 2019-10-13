@@ -216,8 +216,6 @@ u8 lightrec_alloc_reg_temp(struct regcache *cache, jit_state_t *_jit)
 	}
 
 	jit_reg = lightrec_reg_to_lightning(cache, nreg);
-	jit_note(__FILE__, __LINE__);
-
 	lightrec_unload_nreg(cache, _jit, nreg, jit_reg);
 
 	nreg->used = true;
@@ -235,7 +233,6 @@ u8 lightrec_alloc_reg_out(struct regcache *cache, jit_state_t *_jit, u8 reg)
 	}
 
 	jit_reg = lightrec_reg_to_lightning(cache, nreg);
-	jit_note(__FILE__, __LINE__);
 
 	/* If we get a dirty register that doesn't correspond to the one
 	 * we're requesting, store back the old value */
@@ -261,7 +258,6 @@ u8 lightrec_alloc_reg_in(struct regcache *cache, jit_state_t *_jit, u8 reg)
 	}
 
 	jit_reg = lightrec_reg_to_lightning(cache, nreg);
-	jit_note(__FILE__, __LINE__);
 
 	/* If we get a dirty register that doesn't correspond to the one
 	 * we're requesting, store back the old value */
@@ -280,7 +276,7 @@ u8 lightrec_alloc_reg_in(struct regcache *cache, jit_state_t *_jit, u8 reg)
 	}
 
 	/* Clear register r0 before use */
-	if (reg == 0) {
+	if (reg == 0 && (!nreg->loaded || nreg->dirty)) {
 		jit_movi(jit_reg, 0);
 		nreg->extended = true;
 	}
@@ -413,6 +409,23 @@ void lightrec_clean_reg(struct regcache *cache, jit_state_t *_jit, u8 jit_reg)
 {
 	struct native_register *reg = lightning_reg_to_lightrec(cache, jit_reg);
 	clean_reg(_jit, reg, jit_reg, true);
+}
+
+void lightrec_clean_reg_if_loaded(struct regcache *cache, jit_state_t *_jit,
+				  u8 reg, bool unload)
+{
+	struct native_register *nreg;
+	u8 jit_reg;
+
+	nreg = find_mapped_reg(cache, reg, false);
+	if (nreg) {
+		jit_reg = lightrec_reg_to_lightning(cache, nreg);
+
+		if (unload)
+			lightrec_unload_nreg(cache, _jit, nreg, jit_reg);
+		else
+			clean_reg(_jit, nreg, jit_reg, true);
+	}
 }
 
 struct native_register * lightrec_regcache_enter_branch(struct regcache *cache)

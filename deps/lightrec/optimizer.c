@@ -452,6 +452,14 @@ static u32 lightrec_propagate_consts(union code c, u32 known, u32 *v)
 	case OP_LWC2:
 		known &= ~BIT(c.i.rt);
 		break;
+	case OP_META_MOV:
+		if (known & BIT(c.r.rs)) {
+			known |= BIT(c.r.rd);
+			v[c.r.rd] = v[c.r.rs];
+		} else {
+			known &= ~BIT(c.r.rd);
+		}
+		break;
 	default:
 		break;
 	}
@@ -673,10 +681,6 @@ static int lightrec_early_unload(struct block *block)
 		int ret;
 
 		for (op = list; op->next; last = op, op = op->next, id++) {
-			if (has_delay_slot(op->c) ||
-			    (last && has_delay_slot(last->c)))
-				continue;
-
 			if (opcode_reads_register(op->c, i)) {
 				last_r = op;
 				last_r_id = id;
@@ -688,37 +692,51 @@ static int lightrec_early_unload(struct block *block)
 			}
 		}
 
-		if (last_r) {
-			ret = lightrec_add_unload(last_r, i);
-			if (ret)
-				return ret;
-		}
+		if (last_w_id > last_r_id) {
+			if (has_delay_slot(last_w->c) &&
+			    !(last_w->flags & LIGHTREC_NO_DS))
+				last_w = last_w->next;
 
-		if (last_w && (!last_r || last_w_id > last_r_id)) {
-			ret = lightrec_add_unload(last_w, i);
-			if (ret)
-				return ret;
+			if (last_w->next) {
+				ret = lightrec_add_unload(last_w, i);
+				if (ret)
+					return ret;
+			}
+		} else if (last_r) {
+			if (has_delay_slot(last_r->c) &&
+			    !(last_r->flags & LIGHTREC_NO_DS))
+				last_r = last_r->next;
+
+			if (last_r->next) {
+				ret = lightrec_add_unload(last_r, i);
+				if (ret)
+					return ret;
+			}
 		}
 	}
 
 	return 0;
 }
 
-static int lightrec_flag_stores(struct block *block)
+static int lightrec_constant_folding(struct block *block)
 {
 	struct opcode *list;
 	u32 known = BIT(0);
 	u32 values[32] = { 0 };
-	int ret;
 
 	for (list = block->opcode_list; list; list = list->next) {
-		known = lightrec_propagate_consts(list->c, known, values);
-
 		/* Register $zero is always, well, zero */
 		known |= BIT(0);
 		values[0] = 0;
 
 		switch (list->i.op) {
+		case OP_LUI:
+			if ((known & BIT(list->i.rt)) &&
+			    values[list->i.rt] == (list->i.imm << 16)) {
+				pr_debug("Remove duplicated LUI opcode\n");
+				list->opcode = 0; /* NOP */
+			}
+			break;
 		case OP_SB:
 		case OP_SH:
 		case OP_SW:
@@ -746,6 +764,8 @@ static int lightrec_flag_stores(struct block *block)
 		default: /* fall-through */
 			break;
 		}
+
+		known = lightrec_propagate_consts(list->c, known, values);
 	}
 
 	return 0;
@@ -754,8 +774,8 @@ static int lightrec_flag_stores(struct block *block)
 static int (*lightrec_optimizers[])(struct block *) = {
 	&lightrec_transform_ops,
 	&lightrec_switch_delay_slots,
+	&lightrec_constant_folding,
 	&lightrec_early_unload,
-	&lightrec_flag_stores,
 };
 
 int lightrec_optimize(struct block *block)
