@@ -83,11 +83,14 @@ ifneq (,$(findstring unix,$(platform)))
    ifneq ($(shell uname -p | grep -E '((i.|x)86|amd64)'),)
       IS_X86 = 1
    endif
-   ifeq ($(HAVE_LIGHTREC), 1)
-      LDFLAGS += $(PTHREAD_FLAGS) -ldl -lrt
-      FLAGS += -DHAVE_SHM
+   ifneq (,$(findstring Haiku,$(shell uname -s)))
+     LDFLAGS += $(PTHREAD_FLAGS) -lroot
    else
-      LDFLAGS += $(PTHREAD_FLAGS) -ldl
+     LDFLAGS += $(PTHREAD_FLAGS) -ldl
+   endif
+   ifeq ($(HAVE_LIGHTREC), 1)
+      LDFLAGS += -lrt
+      FLAGS += -DHAVE_SHM
    endif
    FLAGS   +=
    ifeq ($(HAVE_OPENGL),1)

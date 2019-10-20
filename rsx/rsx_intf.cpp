@@ -3428,23 +3428,29 @@ bool rsx_intf_open(bool is_pal, bool force_software)
        * we are running in software mode */
       software_selected = true;
 
-#if defined(HAVE_VULKAN)
-   if (!software_selected && rsx_vulkan_open(is_pal))
+   if (!software_selected)
    {
-      rsx_type       = RSX_VULKAN;
-      vk_initialized = true;
-      goto end;
-   }
+      unsigned preferred; // This will be set to a const value if GET_PREFERRED_HW_RENDER is not supported by frontend
+      if (!environ_cb(RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, &preferred)) preferred = 0xFFFFFFFF;
+
+#if defined(HAVE_VULKAN)
+      if ((preferred == 0xFFFFFFFF || (preferred != RETRO_HW_CONTEXT_OPENGL_CORE && preferred != RETRO_HW_CONTEXT_OPENGL)) && rsx_vulkan_open(is_pal))
+      {
+         rsx_type       = RSX_VULKAN;
+         vk_initialized = true;
+         goto end;
+      }
 #endif
 
 #if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
-   if (!software_selected && rsx_gl_open(is_pal))
-   {
-      rsx_type       = RSX_OPENGL;
-      gl_initialized = true;
-      goto end;
-   }
+      if (rsx_gl_open(is_pal))
+      {
+         rsx_type       = RSX_OPENGL;
+         gl_initialized = true;
+         goto end;
+      }
 #endif
+   }
 
    if (rsx_soft_open(is_pal))
       goto end;
