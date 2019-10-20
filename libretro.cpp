@@ -1536,10 +1536,6 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 }
 
 #ifdef HAVE_LIGHTREC
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE MAP_FIXED
-#endif
-
 static const uintptr_t supported_io_bases[] = {
 	0x00000000,
 	0x10000000,
@@ -1557,6 +1553,7 @@ int lightrec_init_mmap()
 #ifdef HAVE_SHM
 	unsigned int i, j;
 	uintptr_t base;
+	void *bios, *scratch;
 	int err;
 	void *map;
 
@@ -1584,11 +1581,13 @@ int lightrec_init_mmap()
 
 	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
 		base = supported_io_bases[i];
+		bios = (void *)(base + 0x1fc00000);
+		scratch = (void *)(base + 0x1f800000);
 
 		for (j = 0; j < 4; j++) {
 			map = mmap((void *)(base + j * 0x200000),
 				   0x200000, PROT_READ | PROT_WRITE,
-				   MAP_SHARED | MAP_FIXED_NOREPLACE, memfd, 0);
+				   MAP_SHARED, memfd, 0);
 			if (map == MAP_FAILED)
 				break;
 			else if (map != (void *)(base + j * 0x200000))
@@ -1605,51 +1604,51 @@ int lightrec_init_mmap()
 
 		/* All mirrors mapped - we got a match! */
 		if (j == 4)
-			break;
+		{
+			psx_mem = (uint8 *)base;
 
-		/* Only some mirrors mapped - clean the mess and try again */
+			map = mmap(bios, 0x80000, PROT_READ | PROT_WRITE,
+				   MAP_PRIVATE, memfd, 0x200000);
+			if (map == MAP_FAILED)
+				goto err_unmap;
+
+			psx_bios = (uint8 *)map;
+
+			if (map != bios)
+				goto err_unmap_bios;
+
+			map = mmap(scratch, 0x400, PROT_READ | PROT_WRITE,
+				   MAP_PRIVATE, memfd, 0x280000);
+			if (map == MAP_FAILED)
+				goto err_unmap_bios;
+
+			psx_scratch = (uint8 *)map;
+
+			if (map != scratch)
+				goto err_unmap_scratch;
+
+#ifndef HAVE_ASHMEM
+			close(memfd);
+#endif
+			return 0;
+		}
+
+err_unmap_scratch:
+		munmap(psx_scratch, 0x400);
+err_unmap_bios:
+		munmap(psx_bios, 0x80000);
+err_unmap:
+		/* Clean up any mapped ram or mirrors and try again */
 		for (; j > 0; j--)
 			munmap((void *)(base + (j - 1) * 0x200000), 0x200000);
 	}
 
 	if (i == ARRAY_SIZE(supported_io_bases)) {
 		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap RAM and mirrors\n");
+		fprintf(stderr, "Unable to mmap on any base address, dynarec will be slower\n");
 		goto err_close_memfd;
 	}
 
-	psx_mem = (uint8 *)base;
-
-	map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
-		   MAP_PRIVATE | MAP_FIXED_NOREPLACE, memfd, 0x200000);
-	if (map == MAP_FAILED) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap BIOS\n");
-		goto err_unmap;
-	}
-
-	psx_bios = (uint8 *)map;
-
-	map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
-		   MAP_PRIVATE | MAP_FIXED_NOREPLACE, memfd, 0x280000);
-	if (map == MAP_FAILED) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap scratchpad\n");
-		goto err_unmap_bios;
-	}
-
-	psx_scratch = (uint8 *)map;
-
-#ifndef HAVE_ASHMEM
-	close(memfd);
-#endif
-	return 0;
-
-err_unmap_bios:
-	munmap(psx_bios, 0x80000);
-err_unmap:
-	for (j = 0; j < 4; j++)
-		munmap((void *)((uintptr_t)psx_mem + j * 0x200000), 0x200000);
 err_close_memfd:
 #ifndef HAVE_ASHMEM
 	close(memfd);
@@ -1737,44 +1736,57 @@ err_close_memfd:
 #else
 	unsigned int i;
 	uintptr_t base;
+	void *bios, *scratch;
 	int err;
 	void *map;
 
 	for (i = 0; i < ARRAY_SIZE(supported_io_bases); i++) {
 		base = supported_io_bases[i];
+		bios = (void *)(base + 0x1fc00000);
+		scratch = (void *)(base + 0x1f800000);
 
 		map = mmap((void *)base, 0x200000, PROT_READ | PROT_WRITE,
-			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
+			   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 		if (map == MAP_FAILED)
 			continue;
 
 		psx_mem = (uint8 *)map;
 
-		map = mmap((void *)(base + 0x1fc00000), 0x80000, PROT_READ | PROT_WRITE,
-			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
-		if (map == MAP_FAILED) {
+		if (map != (void *)base) {
 			goto err_unmap;
 		}
 
+		map = mmap(bios, 0x80000, PROT_READ | PROT_WRITE,
+			   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+		if (map == MAP_FAILED)
+			goto err_unmap;
+
 		psx_bios = (uint8 *)map;
 
-		map = mmap((void *)(base + 0x1f800000), 0x400, PROT_READ | PROT_WRITE,
-			   MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED_NOREPLACE, -1, 0);
-		if (map == MAP_FAILED) {
+		if (map != bios)
 			goto err_unmap_bios;
-		}
+
+		map = mmap(scratch, 0x400, PROT_READ | PROT_WRITE,
+			   MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+		if (map == MAP_FAILED)
+			goto err_unmap_bios;
 
 		psx_scratch = (uint8 *)map;
 
+		if (map != scratch)
+			goto err_unmap_scratch;
+
 		return 0;
 
+	err_unmap_scratch:
+		munmap(psx_scratch, 0x400);
 	err_unmap_bios:
 		munmap(psx_bios, 0x80000);
 	err_unmap:
 		munmap(psx_mem, 0x200000);
 	}
 
-	fprintf(stderr, "Unable to mmap RAM/ROM, dynarec will be slower\n");
+	fprintf(stderr, "Unable to mmap on any base address, dynarec will be slower\n");
 	return -EINVAL;
 #endif
 }
