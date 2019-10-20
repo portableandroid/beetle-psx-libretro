@@ -1689,50 +1689,36 @@ err_close_memfd:
 
 		/* All mirrors mapped - we got a match! */
 		if (j == 4)
-			break;
+		{
+			psx_mem = (uint8 *)base;
 
-		/* Only some mirrors mapped - clean the mess and try again */
+			map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x200000, 0x80000, (void *)(base + 0x1fc00000));
+			if (map == NULL)
+				goto err_unmap;
+
+			psx_bios = (uint8 *)map;
+
+			map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x280000, 0x400, (void *)(base + 0x1f800000));
+			if (map == NULL)
+				goto err_unmap_bios;
+
+			psx_scratch = (uint8 *)map;
+
+			CloseHandle(memfd);
+			return 0;
+		}
+
+err_unmap_bios:
+		UnmapViewOfFile(psx_bios);
+err_unmap:
+		/* Clean up any mapped ram or mirrors and try again */
 		for (; j > 0; j--)
 			UnmapViewOfFile((void *)(base + (j - 1) * 0x200000));
 	}
 
-	if (i == ARRAY_SIZE(supported_io_bases)) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap RAM and mirrors\n");
-		goto err_close_memfd;
-	}
-
-	psx_mem = (uint8 *)base;
-
-	map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x200000, 0x80000, (void *)(base + 0x1fc00000));
-	if (map == NULL) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap BIOS\n");
-		goto err_unmap;
-	}
-
-	psx_bios = (uint8 *)map;
-
-	map = MapViewOfFileEx(memfd, FILE_MAP_ALL_ACCESS, 0, 0x280000, 0x400, (void *)(base + 0x1f800000));
-	if (map == NULL) {
-		err = -EINVAL;
-		fprintf(stderr, "Unable to mmap scratchpad\n");
-		goto err_unmap_bios;
-	}
-
-	psx_scratch = (uint8 *)map;
-
+	fprintf(stderr, "Unable to mmap on any base address, dynarec will be slower\n");
 	CloseHandle(memfd);
-	return 0;
-
-err_unmap_bios:
-	UnmapViewOfFile(psx_bios);
-err_unmap:
-	for (j = 0; j < 4; j++)
-		UnmapViewOfFile((void *)((uintptr_t)psx_mem + j * 0x200000));
-err_close_memfd:
-	CloseHandle(memfd);
-	return err;
+	return -EINVAL;
 #else
 	unsigned int i;
 	uintptr_t base;
