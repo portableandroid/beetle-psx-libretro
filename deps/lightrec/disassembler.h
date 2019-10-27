@@ -24,6 +24,9 @@
 #define LIGHTREC_NO_INVALIDATE	(1 << 1)
 #define LIGHTREC_NO_DS		(1 << 2)
 #define LIGHTREC_SMC		(1 << 3)
+#define LIGHTREC_EMULATE_BRANCH	(1 << 4)
+#define LIGHTREC_LOCAL_BRANCH	(1 << 5)
+#define LIGHTREC_HW_IO		(1 << 6)
 
 struct block;
 
@@ -67,6 +70,7 @@ enum standard_opcodes {
 	OP_META_BNEZ		= 0x15,
 
 	OP_META_MOV		= 0x16,
+	OP_META_SYNC		= 0x17,
 };
 
 enum special_opcodes {

@@ -48,6 +48,8 @@
 
 /* Flags for (struct block *)->flags */
 #define BLOCK_NEVER_COMPILE	BIT(0)
+#define BLOCK_SHOULD_RECOMPILE	BIT(1)
+#define BLOCK_FULLY_TAGGED	BIT(2)
 
 /* Definition of jit_state_t (avoids inclusion of <lightning.h>) */
 struct jit_node;
@@ -75,19 +77,33 @@ struct block {
 	struct block *next;
 };
 
+struct lightrec_branch {
+	struct jit_node *branch;
+	u32 target;
+};
+
+struct lightrec_branch_target {
+	struct jit_node *label;
+	u32 offset;
+};
+
 struct lightrec_state {
 	u32 native_reg_cache[34];
 	u32 next_pc;
 	u32 current_cycle;
 	u32 target_cycle;
 	u32 exit_flags;
-	struct block *wrapper, *rw_wrapper, *mfc_wrapper, *mtc_wrapper,
-		     *rfe_wrapper, *cp_wrapper, *syscall_wrapper,
+	struct block *wrapper, *rw_wrapper, *rw_generic_wrapper, *mfc_wrapper,
+		     *mtc_wrapper, *rfe_wrapper, *cp_wrapper, *syscall_wrapper,
 		     *break_wrapper;
-	void *rw_func, *mfc_func, *mtc_func, *rfe_func, *cp_func, *syscall_func,
-	     *break_func;
-	struct jit_node *branches[256];
+	void *rw_func, *rw_generic_func, *mfc_func, *mtc_func, *rfe_func,
+	     *cp_func, *syscall_func, *break_func;
+	struct jit_node *branches[512];
+	struct lightrec_branch local_branches[512];
+	struct lightrec_branch_target targets[512];
 	unsigned int nb_branches;
+	unsigned int nb_local_branches;
+	unsigned int nb_targets;
 	struct blockcache *block_cache;
 	struct regcache *reg_cache;
 	struct recompiler *rec;

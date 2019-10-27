@@ -467,6 +467,37 @@ static u32 lightrec_propagate_consts(union code c, u32 known, u32 *v)
 	return known;
 }
 
+static int lightrec_add_meta(struct block *block,
+			     struct opcode *op, union code code)
+{
+	struct opcode *meta = lightrec_malloc(MEM_FOR_IR, sizeof(*meta));
+
+	if (!meta)
+		return -ENOMEM;
+
+	meta->c = code;
+	meta->flags = 0;
+
+	if (op) {
+		meta->offset = op->offset;
+		meta->next = op->next;
+		op->next = meta;
+	} else {
+		meta->offset = 0;
+		meta->next = block->opcode_list;
+		block->opcode_list = meta;
+	}
+
+	return 0;
+}
+
+static int lightrec_add_sync(struct block *block, struct opcode *prev)
+{
+	return lightrec_add_meta(block, prev, (union code){
+				 .j.op = OP_META_SYNC,
+				 });
+}
+
 static int lightrec_transform_ops(struct block *block)
 {
 	struct opcode *list = block->opcode_list;
@@ -544,18 +575,20 @@ static int lightrec_transform_ops(struct block *block)
 
 static int lightrec_switch_delay_slots(struct block *block)
 {
-	struct opcode *list;
+	struct opcode *list, *prev;
 	u8 flags;
 
-	for (list = block->opcode_list; list->next; list = list->next) {
+	for (list = block->opcode_list, prev = NULL; list->next;
+	     prev = list, list = list->next) {
 		union code op = list->c;
 		union code next_op = list->next->c;
 
 		if (!has_delay_slot(op) ||
-		    (list->flags & LIGHTREC_NO_DS) ||
-		    next_op.opcode == 0 ||
-		    load_in_delay_slot(next_op) ||
-		    has_delay_slot(next_op))
+		    list->flags & (LIGHTREC_NO_DS | LIGHTREC_EMULATE_BRANCH) ||
+		    op.opcode == 0)
+			continue;
+
+		if (prev && prev->c.i.op == OP_META_SYNC)
 			continue;
 
 		switch (list->i.op) {
@@ -626,6 +659,97 @@ static int lightrec_switch_delay_slots(struct block *block)
 	return 0;
 }
 
+static int lightrec_detect_impossible_branches(struct block *block)
+{
+	struct opcode *list;
+
+	for (list = block->opcode_list; list->next; list = list->next) {
+		if (!has_delay_slot(list->c) ||
+		    (!load_in_delay_slot(list->next->c) &&
+		     !has_delay_slot(list->next->c)))
+			continue;
+
+		if (list == block->opcode_list) {
+			/* If the first opcode is an 'impossible' branch, we
+			 * only keep the first two opcodes of the block (the
+			 * branch itself + its delay slot) */
+			lightrec_free_opcode_list(list->next->next);
+			list->next->next = NULL;
+			block->nb_ops = 2;
+		}
+
+		list->flags |= LIGHTREC_EMULATE_BRANCH;
+	}
+
+	return 0;
+}
+
+static int lightrec_local_branches(struct block *block)
+{
+	struct opcode *list, *target, *prev;
+	s32 offset;
+	int ret;
+
+	for (list = block->opcode_list; list; list = list->next) {
+		if (list->flags & LIGHTREC_EMULATE_BRANCH)
+			continue;
+
+		switch (list->i.op) {
+		case OP_BEQ:
+		case OP_BNE:
+		case OP_BLEZ:
+		case OP_BGTZ:
+		case OP_REGIMM:
+		case OP_META_BEQZ:
+		case OP_META_BNEZ:
+			offset = list->offset + 1 + (s16)list->i.imm;
+			if (offset >= 0 && offset < block->nb_ops)
+				break;
+		default: /* fall-through */
+			continue;
+		}
+
+		pr_debug("Found local branch to offset 0x%x\n", offset << 2);
+
+		for (target = block->opcode_list, prev = NULL;
+		     target; prev = target, target = target->next) {
+			if (target->offset != offset ||
+			    target->j.op == OP_META_SYNC)
+				continue;
+
+			if (target->flags & LIGHTREC_EMULATE_BRANCH) {
+				pr_debug("Branch target must be emulated"
+					 " - skip\n");
+				break;
+			}
+
+			if (prev && has_delay_slot(prev->c)) {
+				pr_debug("Branch target is a delay slot"
+					 " - skip\n");
+				break;
+			}
+
+			if (!prev || prev->j.op != OP_META_SYNC) {
+				pr_debug("Adding sync before offset "
+					 "0x%x\n", offset << 2);
+				ret = lightrec_add_sync(block, prev);
+				if (ret)
+					return ret;
+
+				if (!prev)
+					prev = block->opcode_list;
+
+				prev->next->offset = target->offset;
+			}
+
+			list->flags |= LIGHTREC_LOCAL_BRANCH;
+			break;
+		}
+	}
+
+	return 0;
+}
+
 bool has_delay_slot(union code op)
 {
 	switch (op.i.op) {
@@ -652,21 +776,12 @@ bool has_delay_slot(union code op)
 	}
 }
 
-static int lightrec_add_unload(struct opcode *op, u8 reg)
+static int lightrec_add_unload(struct block *block, struct opcode *op, u8 reg)
 {
-	struct opcode *meta = lightrec_malloc(MEM_FOR_IR, sizeof(*meta));
-
-	if (!meta)
-		return -ENOMEM;
-
-	meta->i.op = OP_META_REG_UNLOAD;
-	meta->i.rs = reg;
-	meta->flags = 0;
-	meta->offset = op->offset;
-	meta->next = op->next;
-	op->next = meta;
-
-	return 0;
+	return lightrec_add_meta(block, op, (union code){
+				 .i.op = OP_META_REG_UNLOAD,
+				 .i.rs = reg,
+				 });
 }
 
 static int lightrec_early_unload(struct block *block)
@@ -697,7 +812,7 @@ static int lightrec_early_unload(struct block *block)
 				last_w = last_w->next;
 
 			if (last_w->next) {
-				ret = lightrec_add_unload(last_w, i);
+				ret = lightrec_add_unload(block, last_w, i);
 				if (ret)
 					return ret;
 			}
@@ -707,7 +822,7 @@ static int lightrec_early_unload(struct block *block)
 				last_r = last_r->next;
 
 			if (last_r->next) {
-				ret = lightrec_add_unload(last_r, i);
+				ret = lightrec_add_unload(block, last_r, i);
 				if (ret)
 					return ret;
 			}
@@ -717,7 +832,7 @@ static int lightrec_early_unload(struct block *block)
 	return 0;
 }
 
-static int lightrec_constant_folding(struct block *block)
+static int lightrec_flag_stores(struct block *block)
 {
 	struct opcode *list;
 	u32 known = BIT(0);
@@ -729,13 +844,6 @@ static int lightrec_constant_folding(struct block *block)
 		values[0] = 0;
 
 		switch (list->i.op) {
-		case OP_LUI:
-			if ((known & BIT(list->i.rt)) &&
-			    values[list->i.rt] == (list->i.imm << 16)) {
-				pr_debug("Remove duplicated LUI opcode\n");
-				list->opcode = 0; /* NOP */
-			}
-			break;
 		case OP_SB:
 		case OP_SH:
 		case OP_SW:
@@ -771,9 +879,11 @@ static int lightrec_constant_folding(struct block *block)
 }
 
 static int (*lightrec_optimizers[])(struct block *) = {
+	&lightrec_detect_impossible_branches,
 	&lightrec_transform_ops,
+	&lightrec_local_branches,
 	&lightrec_switch_delay_slots,
-	&lightrec_constant_folding,
+	&lightrec_flag_stores,
 	&lightrec_early_unload,
 };
 

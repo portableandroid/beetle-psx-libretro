@@ -92,8 +92,6 @@ static u32 int_delay_slot(struct interpreter *inter, u32 pc, bool branch)
 	 * branch. */
 	load_in_ds = load_in_delay_slot(op->c);
 	branch_in_ds = has_delay_slot(op->c);
-	if (load_in_ds || branch_in_ds)
-		inter->block->flags |= BLOCK_NEVER_COMPILE;
 
 	if (branch) {
 		if (load_in_ds || branch_in_ds)
@@ -257,7 +255,10 @@ static u32 int_beq(struct interpreter *inter, bool bne)
 	if (branch)
 		return next_pc;
 
-	JUMP_AFTER_BRANCH(inter);
+	if (inter->op->flags & LIGHTREC_EMULATE_BRANCH)
+		return old_pc + 8;
+	else
+		JUMP_AFTER_BRANCH(inter);
 }
 
 static u32 int_BEQ(struct interpreter *inter)
@@ -295,7 +296,10 @@ static u32 int_bgez(struct interpreter *inter, bool link, bool lt, bool regimm)
 	if (branch)
 		return next_pc;
 
-	JUMP_AFTER_BRANCH(inter);
+	if (inter->op->flags & LIGHTREC_EMULATE_BRANCH)
+		return old_pc + 8;
+	else
+		JUMP_AFTER_BRANCH(inter);
 }
 
 static u32 int_regimm_BLTZ(struct interpreter *inter)
@@ -801,7 +805,7 @@ static u32 int_special_SLTU(struct interpreter *inter)
 	JUMP_NEXT(inter);
 }
 
-static u32 int_META_UNLOAD(struct interpreter *inter)
+static u32 int_META_SKIP(struct interpreter *inter)
 {
 	JUMP_SKIP(inter);
 }
@@ -851,10 +855,11 @@ static const lightrec_int_func_t int_standard[64] = {
 	[OP_LWC2]		= int_LWC2,
 	[OP_SWC2]		= int_store,
 
-	[OP_META_REG_UNLOAD]	= int_META_UNLOAD,
+	[OP_META_REG_UNLOAD]	= int_META_SKIP,
 	[OP_META_BEQZ]		= int_BEQ,
 	[OP_META_BNEZ]		= int_BNE,
 	[OP_META_MOV]		= int_META_MOV,
+	[OP_META_SYNC]		= int_META_SKIP,
 };
 
 static const lightrec_int_func_t int_special[64] = {
