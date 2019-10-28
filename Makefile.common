@@ -148,7 +148,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
    FLAGS += -DHAVE_LIGHTREC
 
    ifeq ($(DEBUG), 0)
-       FLAGS += -DENABLE_THREADED_COMPILER=1
+       FLAGS += -DENABLE_THREADED_COMPILER=0
    else
        FLAGS += -DENABLE_THREADED_COMPILER=0
    endif
@@ -375,7 +375,7 @@ ifeq ($(HAVE_LIGHTREC), 1)
                   $(DEPS_DIR)/lightrec/regcache.c
 
    ifeq ($(DEBUG), 0)
-       SOURCES_C +=   $(DEPS_DIR)/lightrec/recompiler.c
+       //SOURCES_C +=   $(DEPS_DIR)/lightrec/recompiler.c
    endif
 
    ifneq (,$(findstring win,$(platform)))
