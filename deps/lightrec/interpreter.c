@@ -62,6 +62,23 @@ struct interpreter {
 	EXECUTE(int_standard[inter->op->i.op], inter);			\
 } while (0)
 
+static void update_cycles_before_branch(struct interpreter *inter)
+{
+	u32 cycles;
+
+	if (!inter->delay_slot) {
+		cycles = lightrec_cycles_of_opcode(inter->op->c);
+
+		if (has_delay_slot(inter->op->c) &&
+		    !(inter->op->flags & LIGHTREC_NO_DS))
+			cycles += lightrec_cycles_of_opcode(inter->op->next->c);
+
+		inter->cycles += cycles;
+		inter->state->current_cycle += inter->cycles;
+		inter->cycles = -cycles;
+	}
+}
+
 static u32 int_delay_slot(struct interpreter *inter, u32 pc, bool branch)
 {
 	u32 *reg_cache = inter->state->native_reg_cache;
@@ -233,11 +250,24 @@ static u32 int_special_JALR(struct interpreter *inter)
 	return int_jumpr(inter, inter->op->r.rd);
 }
 
+static u32 int_do_branch(struct interpreter *inter, u32 old_pc, u32 next_pc)
+{
+	if ((inter->op->flags & LIGHTREC_LOCAL_BRANCH) &&
+	    (s16)inter->op->c.i.imm >= -1) {
+		next_pc = old_pc + ((1 + (s16)inter->op->c.i.imm) << 2);
+		next_pc = lightrec_emulate_block(inter->block, next_pc);
+	}
+
+	return next_pc;
+}
+
 static u32 int_beq(struct interpreter *inter, bool bne)
 {
 	u32 old_pc = inter->block->pc + inter->op->offset * sizeof(u32);
 	u32 rs, rt, next_pc = old_pc + 4 + ((s16)inter->op->i.imm << 2);
 	bool branch;
+
+	update_cycles_before_branch(inter);
 
 	rs = inter->state->native_reg_cache[inter->op->i.rs];
 	rt = inter->state->native_reg_cache[inter->op->i.rt];
@@ -245,7 +275,7 @@ static u32 int_beq(struct interpreter *inter, bool bne)
 
 	if (inter->op->flags & LIGHTREC_NO_DS) {
 		if (branch)
-			return next_pc;
+			return int_do_branch(inter, old_pc, next_pc);
 
 		JUMP_NEXT(inter);
 	}
@@ -253,7 +283,7 @@ static u32 int_beq(struct interpreter *inter, bool bne)
 	next_pc = int_delay_slot(inter, next_pc, branch);
 
 	if (branch)
-		return next_pc;
+		return int_do_branch(inter, old_pc, next_pc);
 
 	if (inter->op->flags & LIGHTREC_EMULATE_BRANCH)
 		return old_pc + 8;
@@ -278,6 +308,8 @@ static u32 int_bgez(struct interpreter *inter, bool link, bool lt, bool regimm)
 	bool branch;
 	s32 rs;
 
+	update_cycles_before_branch(inter);
+
 	if (link)
 		inter->state->native_reg_cache[31] = old_pc + 8;
 
@@ -286,7 +318,7 @@ static u32 int_bgez(struct interpreter *inter, bool link, bool lt, bool regimm)
 
 	if (inter->op->flags & LIGHTREC_NO_DS) {
 		if (branch)
-			return next_pc;
+			return int_do_branch(inter, old_pc, next_pc);
 
 		JUMP_NEXT(inter);
 	}
@@ -294,7 +326,7 @@ static u32 int_bgez(struct interpreter *inter, bool link, bool lt, bool regimm)
 	next_pc = int_delay_slot(inter, next_pc, branch);
 
 	if (branch)
-		return next_pc;
+		return int_do_branch(inter, old_pc, next_pc);
 
 	if (inter->op->flags & LIGHTREC_EMULATE_BRANCH)
 		return old_pc + 8;
@@ -821,6 +853,14 @@ static u32 int_META_MOV(struct interpreter *inter)
 	JUMP_NEXT(inter);
 }
 
+static u32 int_META_SYNC(struct interpreter *inter)
+{
+	inter->state->current_cycle += inter->cycles;
+	inter->cycles = 0;
+
+	JUMP_SKIP(inter);
+}
+
 static const lightrec_int_func_t int_standard[64] = {
 	[OP_SPECIAL]		= int_SPECIAL,
 	[OP_REGIMM]		= int_REGIMM,
@@ -859,7 +899,7 @@ static const lightrec_int_func_t int_standard[64] = {
 	[OP_META_BEQZ]		= int_BEQ,
 	[OP_META_BNEZ]		= int_BNE,
 	[OP_META_MOV]		= int_META_MOV,
-	[OP_META_SYNC]		= int_META_SKIP,
+	[OP_META_SYNC]		= int_META_SYNC,
 };
 
 static const lightrec_int_func_t int_special[64] = {
@@ -958,14 +998,14 @@ static u32 lightrec_int_op(struct interpreter *inter)
 	EXECUTE(int_standard[inter->op->i.op], inter);
 }
 
-u32 lightrec_emulate_block(struct block *block)
+static u32 lightrec_emulate_block_list(struct block *block, struct opcode *op)
 {
 	struct interpreter inter;
 	u32 pc;
 
 	inter.block = block;
 	inter.state = block->state;
-	inter.op = block->opcode_list;
+	inter.op = op;
 	inter.cycles = 0;
 	inter.delay_slot = false;
 
@@ -977,4 +1017,19 @@ u32 lightrec_emulate_block(struct block *block)
 	block->state->current_cycle += inter.cycles;
 
 	return pc;
+}
+
+u32 lightrec_emulate_block(struct block *block, u32 pc)
+{
+	u32 offset = (kunseg(pc) - block->kunseg_pc) >> 2;
+	struct opcode *op;
+
+	for (op = block->opcode_list;
+	     op && (op->offset < offset); op = op->next);
+	if (op)
+		return lightrec_emulate_block_list(block, op);
+
+	pr_err("PC 0x%x is outside block at PC 0x%x\n", pc, block->pc);
+
+	return 0;
 }
