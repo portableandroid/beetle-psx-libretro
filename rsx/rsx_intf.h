@@ -26,6 +26,15 @@ enum blending_modes
    BLEND_MODE_ADD_FOURTH =  3
 };
 
+enum width_modes
+{
+   WIDTH_MODE_256 = 0,
+   WIDTH_MODE_320,
+   WIDTH_MODE_512,
+   WIDTH_MODE_640,
+   WIDTH_MODE_368
+};
+
 void rsx_intf_set_environment(retro_environment_t cb);
 void rsx_intf_set_video_refresh(retro_video_refresh_t cb);
 void rsx_intf_get_system_av_info(struct retro_system_av_info *info);
@@ -45,9 +54,14 @@ void rsx_intf_set_mask_setting(uint32_t mask_set_or, uint32_t mask_eval_and);
 void rsx_intf_set_draw_offset(int16_t x, int16_t y);
 void rsx_intf_set_draw_area(uint16_t x0, uint16_t y0,
                             uint16_t x1, uint16_t y1);
+void rsx_intf_set_horizontal_display_range(uint16_t x1, uint16_t x2);
+void rsx_intf_set_vertical_display_range(uint16_t y1, uint16_t y2);
 void rsx_intf_set_display_mode(uint16_t x, uint16_t y,
                                uint16_t w, uint16_t h,
-                               bool depth_24bpp);
+                               bool depth_24bpp,
+                               bool is_pal,
+                               bool is_480i,
+                               int width_mode); //enum
 
 void rsx_intf_push_triangle(float p0x, float p0y, float p0w,
                             float p1x, float p1y, float p1w,
@@ -55,17 +69,17 @@ void rsx_intf_push_triangle(float p0x, float p0y, float p0w,
                             uint32_t c0, uint32_t c1, uint32_t c2,
                             uint16_t t0x, uint16_t t0y,
                             uint16_t t1x, uint16_t t1y,
-	                        uint16_t min_u, uint16_t min_v,
-	                        uint16_t max_u, uint16_t max_v,
+                            uint16_t min_u, uint16_t min_v,
+                            uint16_t max_u, uint16_t max_v,
                             uint16_t t2x, uint16_t t2y,
                             uint16_t texpage_x, uint16_t texpage_y,
                             uint16_t clut_x, uint16_t clut_y,
                             uint8_t texture_blend_mode,
                             uint8_t depth_shift,
                             bool dither,
-                            // This is really an `enum blending_modes`
-                            // but I don't want to deal with enums in the
-                            // FFI
+                            /* This is really an `enum blending_modes`
+                             * but I don't want to deal with enums in the
+                             * FFI */
                             int blend_mode,
                             uint32_t mask_test,
                             uint32_t set_mask);
@@ -82,8 +96,8 @@ void rsx_intf_push_quad(float p0x, float p0y, float p0w,
                         uint16_t t1x, uint16_t t1y,
                         uint16_t t2x, uint16_t t2y,
                         uint16_t t3x, uint16_t t3y,
-	                    uint16_t min_u, uint16_t min_v,
-	                    uint16_t max_u, uint16_t max_v,
+                        uint16_t min_u, uint16_t min_v,
+                        uint16_t max_u, uint16_t max_v,
                         uint16_t texpage_x, uint16_t texpage_y,
                         uint16_t clut_x, uint16_t clut_y,
                         uint8_t texture_blend_mode,
@@ -104,11 +118,11 @@ void rsx_intf_push_line(int16_t p0x, int16_t p0y,
                         uint32_t mask_test,
                         uint32_t set_mask);
 
-void rsx_intf_load_image(  uint16_t x, uint16_t y,
-                           uint16_t w, uint16_t h,
-                           uint16_t *vram,
-                           uint32_t mask_test,
-                           uint32_t set_mask);
+void rsx_intf_load_image(uint16_t x, uint16_t y,
+                         uint16_t w, uint16_t h,
+                         uint16_t *vram,
+                         uint32_t mask_test,
+                         uint32_t set_mask);
 
 bool rsx_intf_read_vram(uint16_t x, uint16_t y,
                         uint16_t w, uint16_t h,
