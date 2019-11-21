@@ -1536,6 +1536,14 @@ static void SetDiscWrapper(const bool CD_TrayOpen) {
 }
 
 #ifdef HAVE_LIGHTREC
+/* MAP_FIXED_NOREPLACE allows base 0 to work if "sysctl vm.mmap_min_addr = 0"
+ was used. Base 0 will perform better by directly mapping emulated addresses
+ to host addresses. If MAP_FIXED_NOREPLACE is not available we should not use
+ MAP_FIXED, since it can cause strange crashes by unmapping memory mappings. */
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0
+#endif
+
 static const uintptr_t supported_io_bases[] = {
 	0x00000000,
 	0x10000000,
@@ -1587,7 +1595,7 @@ int lightrec_init_mmap()
 		for (j = 0; j < 4; j++) {
 			map = mmap((void *)(base + j * 0x200000),
 				   0x200000, PROT_READ | PROT_WRITE,
-				   MAP_SHARED, memfd, 0);
+				   MAP_SHARED | MAP_FIXED_NOREPLACE, memfd, 0);
 			if (map == MAP_FAILED)
 				break;
 			else if (map != (void *)(base + j * 0x200000))
