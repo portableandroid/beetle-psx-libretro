@@ -1571,10 +1571,10 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    switch (psx_gpu_dither_mode)
    {
       case DITHER_NATIVE:
-         GPU_set_dither_upscale_shift(0);
+         GPU_set_dither_upscale_shift(psx_gpu_upscale_shift);
          break;
       case DITHER_UPSCALED:
-         GPU_set_dither_upscale_shift(psx_gpu_upscale_shift);
+         GPU_set_dither_upscale_shift(0);
          break;
       case DITHER_OFF:
          break;
@@ -2671,7 +2671,6 @@ static void check_variables(bool startup)
 
 #ifndef EMSCRIPTEN
    var.key = BEETLE_OPT(cd_access_method);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "sync") == 0)
@@ -2693,16 +2692,14 @@ static void check_variables(bool startup)
 #endif
 
    var.key = BEETLE_OPT(cpu_freq_scale);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int scale_percent = atoi(var.value);
 
-      if (scale_percent == 100) {
+      if (scale_percent == 100)
          psx_overclock_factor = 0;
-      } else {
+      else
          psx_overclock_factor = ((scale_percent << OVERCLOCK_SHIFT) + 50) / 100;
-      }
    }
    else
       psx_overclock_factor = 0;
@@ -2711,7 +2708,6 @@ static void check_variables(bool startup)
    GPU_RecalcClockRatio();
 
    var.key = BEETLE_OPT(gte_overclock);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2723,7 +2719,6 @@ static void check_variables(bool startup)
       psx_gte_overclock = false;
 
    var.key = BEETLE_OPT(gpu_overclock);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
          unsigned val = atoi(var.value);
@@ -2744,7 +2739,6 @@ static void check_variables(bool startup)
       psx_gpu_overclock_shift = 0;
 
    var.key = BEETLE_OPT(skip_bios);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2754,7 +2748,6 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(widescreen_hack);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2772,7 +2765,6 @@ static void check_variables(bool startup)
       widescreen_hack = false;
 
    var.key = BEETLE_OPT(enable_memcard1);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2784,51 +2776,52 @@ static void check_variables(bool startup)
       enable_memcard1 = false;
 
    var.key = BEETLE_OPT(analog_calibration);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
-         input_enable_calibration( true );
+         input_enable_calibration(true);
       else if (strcmp(var.value, "disabled") == 0)
-         input_enable_calibration( false );
+         input_enable_calibration(false);
    }
    else
-      input_enable_calibration( false );
+      input_enable_calibration(false);
 
    if (startup)
    {
       var.key = BEETLE_OPT(renderer);
-
+      bool hw_renderer = false;
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
-         if (!strcmp(var.value, "software"))
+         if (strcmp(var.value, "hardware") == 0)
          {
-            var.key = BEETLE_OPT(internal_resolution);
+            hw_renderer = true;
+         }
+      }
 
-            if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-            {
-               uint8_t new_upscale_shift;
-               uint8_t val = atoi(var.value);
+      if (hw_renderer)
+      {
+         psx_gpu_upscale_shift = 0;
+      }
+      else
+      {
+         var.key = BEETLE_OPT(internal_resolution);
+         if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+         {
+            uint8_t new_upscale_shift;
+            uint8_t val = atoi(var.value);
 
-               // Upscale must be a power of two
-               assert((val & (val - 1)) == 0);
+            // Upscale must be a power of two
+            assert((val & (val - 1)) == 0);
 
-               // Crappy "ffs" implementation since the standard function is not
-               // widely supported by libc in the wild
-               for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
-                  val >>= 1;
-               psx_gpu_upscale_shift = new_upscale_shift;
-            }
-            else
-               psx_gpu_upscale_shift = 0;
+            // Crappy "ffs" implementation since the standard function is not
+            // widely supported by libc in the wild
+            for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
+               val >>= 1;
+            psx_gpu_upscale_shift = new_upscale_shift;
          }
          else
             psx_gpu_upscale_shift = 0;
       }
-      else
-         /* If 'BEETLE_OPT(renderer)' option is not found, then
-          * we are running in software mode */
-         psx_gpu_upscale_shift = 0;
    }
    else
    {
@@ -2865,7 +2858,6 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(dither_mode);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "1x(native)") == 0)
@@ -2880,7 +2872,6 @@ static void check_variables(bool startup)
 
    // iCB: PGXP settings
    var.key = BEETLE_OPT(pgxp_mode);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
@@ -2894,7 +2885,6 @@ static void check_variables(bool startup)
       psx_pgxp_mode = PGXP_MODE_NONE;
 
    var.key = BEETLE_OPT(pgxp_vertex);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
@@ -2906,7 +2896,6 @@ static void check_variables(bool startup)
       psx_pgxp_vertex_caching = PGXP_MODE_NONE;
 
    var.key = BEETLE_OPT(pgxp_texture);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
@@ -2919,33 +2908,31 @@ static void check_variables(bool startup)
    // \iCB
 
    var.key = BEETLE_OPT(lineRender);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "disabled"))
+      if (strcmp(var.value, "disabled") == 0)
          lineRenderMode = 0;
-      else if (!strcmp(var.value, "default"))
+      else if (strcmp(var.value, "default") == 0)
          lineRenderMode = 1;
-      else if (!strcmp(var.value, "aggressive"))
+      else if (strcmp(var.value, "aggressive") == 0)
          lineRenderMode = 2;
    }
 
    var.key = BEETLE_OPT(filter);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int old_filter_mode = filter_mode;
-      if (!strcmp(var.value, "nearest"))
+      if (strcmp(var.value, "nearest") == 0)
          filter_mode = 0;
-      else if (!strcmp(var.value, "xBR"))
+      else if (strcmp(var.value, "xBR") == 0)
          filter_mode = 1;
-      else if (!strcmp(var.value, "SABR"))
+      else if (strcmp(var.value, "SABR") == 0)
          filter_mode = 2;
-      else if (!strcmp(var.value, "bilinear"))
+      else if (strcmp(var.value, "bilinear") == 0)
          filter_mode = 3;
-      else if (!strcmp(var.value, "3-point"))
+      else if (strcmp(var.value, "3-point") == 0)
          filter_mode = 4;
-      else if (!strcmp(var.value, "JINC2"))
+      else if (strcmp(var.value, "JINC2") == 0)
          filter_mode = 5;
 
       if(filter_mode != old_filter_mode)
@@ -2957,7 +2944,6 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(analog_toggle);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if ((strcmp(var.value, "enabled") == 0)
@@ -2975,7 +2961,6 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(enable_multitap_port1);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2985,7 +2970,6 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(enable_multitap_port2);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "enabled") == 0)
@@ -2995,89 +2979,78 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(mouse_sensitivity);
-	var.value = NULL;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      input_set_mouse_sensitivity(atoi(var.value));
 
-	if ( environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value )
-		input_set_mouse_sensitivity( atoi( var.value ) );
-
-	var.key = BEETLE_OPT(gun_cursor);
-	var.value = NULL;
-
-	if ( environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value )
-	{
-		if ( !strcmp(var.value, "Off") ) {
-			input_set_gun_cursor( FrontIO::SETTING_GUN_CROSSHAIR_OFF );
-		} else if ( !strcmp(var.value, "Cross") ) {
-			input_set_gun_cursor( FrontIO::SETTING_GUN_CROSSHAIR_CROSS );
-		} else if ( !strcmp(var.value, "Dot") ) {
-			input_set_gun_cursor( FrontIO::SETTING_GUN_CROSSHAIR_DOT );
-		}
-	}
-
-   var.key = BEETLE_OPT(gun_input_mode);
-   var.value = NULL;
-
-   if ( environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value )
+   var.key = BEETLE_OPT(gun_cursor);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if ( !strcmp(var.value, "Touchscreen" ) ) {
-         gun_input_mode = SETTING_GUN_INPUT_POINTER;
-      } else {
-         gun_input_mode = SETTING_GUN_INPUT_LIGHTGUN;
-      }
+      if (strcmp(var.value, "off") == 0)
+         input_set_gun_cursor(FrontIO::SETTING_GUN_CROSSHAIR_OFF);
+      else if (strcmp(var.value, "cross") == 0)
+         input_set_gun_cursor(FrontIO::SETTING_GUN_CROSSHAIR_CROSS);
+      else if (strcmp(var.value, "dot") == 0)
+         input_set_gun_cursor(FrontIO::SETTING_GUN_CROSSHAIR_DOT);
    }
 
-	var.key = BEETLE_OPT(negcon_deadzone);
-	var.value = NULL;
-	input_set_negcon_deadzone(0);
-	if ( environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value ) {
-		input_set_negcon_deadzone( (int)(atoi(var.value) * 0.01f * NEGCON_RANGE) );
-	}
+   var.key = BEETLE_OPT(gun_input_mode);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "lightgun") == 0)
+         gun_input_mode = SETTING_GUN_INPUT_LIGHTGUN;
+      else if (strcmp(var.value, "touchscreen") == 0)
+         gun_input_mode = SETTING_GUN_INPUT_POINTER;
+   }
+   else
+      gun_input_mode = SETTING_GUN_INPUT_LIGHTGUN;
 
-	var.key = BEETLE_OPT(negcon_response);
-	var.value = NULL;
-	input_set_negcon_linearity(1);
-	if ( environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value ) {
-		if (strcmp(var.value, "quadratic") == 0) {
-        input_set_negcon_linearity(2);
-      } else if (strcmp(var.value, "cubic") == 0) {
+   var.key = BEETLE_OPT(negcon_deadzone);
+   input_set_negcon_deadzone(0);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      input_set_negcon_deadzone((int)(atoi(var.value) * 0.01f * NEGCON_RANGE));
+   }
+
+   var.key = BEETLE_OPT(negcon_response);
+   input_set_negcon_linearity(1);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "quadratic") == 0)
+         input_set_negcon_linearity(2);
+      else if (strcmp(var.value, "cubic") == 0)
          input_set_negcon_linearity(3);
-      }
-	}
+   }
 
-        var.key = BEETLE_OPT(initial_scanline);
-
+   var.key = BEETLE_OPT(initial_scanline);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       setting_initial_scanline = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(last_scanline);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       setting_last_scanline = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(initial_scanline_pal);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       setting_initial_scanline_pal = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(last_scanline_pal);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       setting_last_scanline_pal = atoi(var.value);
    }
 
    if(setting_psx_multitap_port_1 && setting_psx_multitap_port_2)
-      input_set_player_count( 8 );
+      input_set_player_count(8);
    else if (setting_psx_multitap_port_1 || setting_psx_multitap_port_2)
-      input_set_player_count( 5 );
+      input_set_player_count(5);
    else
-      input_set_player_count( 2 );
+      input_set_player_count(2);
 
    var.key = BEETLE_OPT(use_mednafen_memcard0_method);
 
@@ -3120,108 +3093,70 @@ static void check_variables(bool startup)
    }
 
    var.key = BEETLE_OPT(frame_duping);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "enabled"))
+      if (strcmp(var.value, "enabled") == 0)
       {
          bool can_dupe = false;
-
          if (environ_cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &can_dupe))
-            allow_frame_duping = true;
+            allow_frame_duping = can_dupe;
       }
-      else if (!strcmp(var.value, "disabled"))
+      else if (strcmp(var.value, "disabled") == 0)
          allow_frame_duping = false;
    }
    else
       allow_frame_duping = false;
 
    var.key = BEETLE_OPT(display_internal_fps);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-     {
-       if (strcmp(var.value, "enabled") == 0)
+   {
+      if (strcmp(var.value, "enabled") == 0)
          display_internal_framerate = true;
-       else if (strcmp(var.value, "disabled") == 0)
+      else if (strcmp(var.value, "disabled") == 0)
          display_internal_framerate = false;
-     }
+   }
    else
-     display_internal_framerate = false;
+      display_internal_framerate = false;
 
    var.key = BEETLE_OPT(crop_overscan);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-     {
-       if (strcmp(var.value, "enabled") == 0)
+   {
+      if (strcmp(var.value, "enabled") == 0)
          crop_overscan = true;
-       else if (strcmp(var.value, "disabled") == 0)
+      else if (strcmp(var.value, "disabled") == 0)
          crop_overscan = false;
-     }
+   }
 
    var.key = BEETLE_OPT(image_offset);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
          image_offset = 0;
-      else if (strcmp(var.value, "1 px") == 0)
-         image_offset = -1;
-      else if (strcmp(var.value, "-1 px") == 0)
-         image_offset = 1;
-      else if (strcmp(var.value, "2 px") == 0)
-         image_offset = -2;
-      else if (strcmp(var.value, "-2 px") == 0)
-         image_offset = 2;
-      else if (strcmp(var.value, "3 px") == 0)
-         image_offset = -3;
-      else if (strcmp(var.value, "-3 px") == 0)
-         image_offset = 3;
-      else if (strcmp(var.value, "4 px") == 0)
-         image_offset = -4;
-      else if (strcmp(var.value, "-4 px") == 0)
-         image_offset = 4;
+      else
+         image_offset = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(image_crop);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (strcmp(var.value, "disabled") == 0)
          image_crop = 0;
-      else if (strcmp(var.value, "1 px") == 0)
-         image_crop = 1;
-      else if (strcmp(var.value, "2 px") == 0)
-         image_crop = 2;
-      else if (strcmp(var.value, "3 px") == 0)
-         image_crop = 3;
-      else if (strcmp(var.value, "4 px") == 0)
-         image_crop = 4;
-      else if (strcmp(var.value, "5 px") == 0)
-         image_crop = 5;
-      else if (strcmp(var.value, "6 px") == 0)
-         image_crop = 6;
-      else if (strcmp(var.value, "7 px") == 0)
-         image_crop = 7;
-      else if (strcmp(var.value, "8 px") == 0)
-         image_crop = 8;
+      else
+         image_crop = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(cd_fastload);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      uint8_t val = var.value[0] - '0';
+      if (var.value[1] != 'x')
       {
-         uint8_t val = var.value[0] - '0';
-
-         if (var.value[1] != 'x')
-            {
-               val  = (var.value[0] - '0') * 10;
-               val += var.value[1] - '0';
-            }
-
-         // Value is a multiplier from the native 2x, so we divide by
-         // two
-         cd_2x_speedup = val / 2;
+         val  = (var.value[0] - '0') * 10;
+         val += var.value[1] - '0';
       }
+      // Value is a multiplier from the native 2x, so we divide by two
+      cd_2x_speedup = val / 2;
+   }
    else
       cd_2x_speedup = 1;
 }
@@ -3455,7 +3390,7 @@ bool retro_load_game(const struct retro_game_info *info)
    if (failed_init)
       return false;
 
-	input_init_env( environ_cb );
+   input_init_env(environ_cb);
 
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
@@ -3514,8 +3449,94 @@ bool retro_load_game(const struct retro_game_info *info)
       so we don't have to force this anymore. */
       force_software_renderer = true;
    } 
-   
-   return rsx_intf_open(is_pal, force_software_renderer);
+
+   ret = rsx_intf_open(is_pal, force_software_renderer);
+
+   /* Hide irrelevant core options */
+   switch (rsx_intf_is_type())
+   {
+      case RSX_SOFTWARE:
+      {
+         struct retro_core_option_display option_display;
+         option_display.visible = false;
+
+         option_display.key = BEETLE_OPT(renderer_software_fb);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(adaptive_smoothing);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(super_sampling);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(msaa);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(mdec_yuv);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(depth);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(wireframe);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(display_vram);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(filter);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(pgxp_vertex);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(pgxp_texture);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         option_display.key = BEETLE_OPT(image_offset_cycles);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         break;
+      }
+      case RSX_OPENGL:
+      {
+         struct retro_core_option_display option_display;
+         option_display.visible = false;
+
+         option_display.key = BEETLE_OPT(adaptive_smoothing);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(super_sampling);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(msaa);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(mdec_yuv);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         option_display.key = BEETLE_OPT(image_offset);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(image_crop);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         option_display.key = BEETLE_OPT(frame_duping);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         break;
+      }
+      case RSX_VULKAN:
+      {
+         struct retro_core_option_display option_display;
+         option_display.visible = false;
+
+         option_display.key = BEETLE_OPT(depth);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(wireframe);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(display_vram);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         option_display.key = BEETLE_OPT(image_offset);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(image_crop);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         option_display.key = BEETLE_OPT(frame_duping);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+
+         break;
+      }
+   }
+
+   return ret;
 }
 
 void retro_unload_game(void)
@@ -3606,10 +3627,10 @@ void retro_run(void)
       switch (psx_gpu_dither_mode)
       {
          case DITHER_NATIVE:
-            GPU_set_dither_upscale_shift(0);
+            GPU_set_dither_upscale_shift(psx_gpu_upscale_shift);
             break;
          case DITHER_UPSCALED:
-            GPU_set_dither_upscale_shift(psx_gpu_upscale_shift);
+            GPU_set_dither_upscale_shift(0);
             break;
          case DITHER_OFF:
             break;
@@ -3787,59 +3808,51 @@ void retro_run(void)
       width = rects[0]; // spec.DisplayRect.w is 0. Only rects[0].w seems to return something sane.
       height = spec.DisplayRect.h;
       //fprintf(stderr, "(%u x %u)\n", width, height);
-      // PSX core inserts padding on left and right (overscan). Optionally crop this.
 
+      // PSX core inserts padding on left and right (overscan). Optionally crop this.
       const uint32_t *pix = surf->pixels;
       unsigned pix_offset = 0;
 
       if (crop_overscan)
       {
-         // 320 width -> 350 width.
-         // 364 width -> 400 width.
-         // 256 width -> 280 width.
+         // Crop total # of pixels output by PSX in active scanline region down to # of pixels in corresponding horizontal display mode
+         // 280 width -> 256 width.
+         // 350 width -> 320 width.
+         // 400 width -> 366 width.
          // 560 width -> 512 width.
-         // 640 width -> 700 width.
-         // Rectify this.
+         // 700 width -> 640 width.
          switch (width)
          {
-            // The shifts are not simply (padded_width - real_width) / 2.
             case 280:
-               pix_offset += 10 + (image_offset + floor(0.5 * image_crop));
+               pix_offset += 12 + (image_offset + floor(0.5 * image_crop));
                width = 256 - image_crop;
                break;
 
             case 350:
-               pix_offset += 14 + (image_offset + floor(0.5 * image_crop));
+               pix_offset += 15 + (image_offset + floor(0.5 * image_crop));
                width = 320 - image_crop;
                break;
 
+            /* 368px mode. Some games are overcropped at 364 width or undercropped at 368 width, so crop to 366.
+               Adjust in future if there are issues. */
             case 400:
-               pix_offset += 15 + (image_offset + floor(0.5 * image_crop));
-               width = 364 - image_crop;
+               pix_offset += 17 + (image_offset + floor(0.5 * image_crop));
+               width = 366 - image_crop;
                break;
 
             case 560:
-               pix_offset += 26 + (image_offset + floor(0.5 * image_crop));
+               pix_offset += 24 + (image_offset + floor(0.5 * image_crop));
                width = 512 - image_crop;
                break;
 
             case 700:
-               pix_offset += 33 + (image_offset + floor(0.5 * image_crop));
+               pix_offset += 30 + (image_offset + floor(0.5 * image_crop));
                width = 640 - image_crop;
                break;
 
             default:
                // This shouldn't happen.
                break;
-         }
-
-         if (is_pal)
-         {
-            // Attempt to remove black bars.
-            // These numbers are arbitrary since the bars differ some by game.
-            // Changes aspect ratio in the process.
-            height -= 36;
-            pix_offset += 5 * (MEDNAFEN_CORE_GEOMETRY_MAX_W << 2);
          }
       }
 

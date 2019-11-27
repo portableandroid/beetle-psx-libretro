@@ -11,6 +11,8 @@ enum
    RSX_TEX_WINDOW,
    RSX_DRAW_OFFSET,
    RSX_DRAW_AREA,
+   RSX_HORIZONTAL_RANGE,
+   RSX_VERTICAL_RANGE,
    RSX_DISPLAY_MODE,
    RSX_TRIANGLE,
    RSX_QUAD,
@@ -130,7 +132,25 @@ void rsx_dump_set_draw_area(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
    write_u32(y1);
 }
 
-void rsx_dump_set_display_mode(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool depth_24bpp)
+void rsx_dump_set_horizontal_display_range(uint16_t x1, uint16_t x2);
+{
+   if (!file)
+      return;
+   write_u32(RSX_HORIZONTAL_RANGE);
+   write_u32(x1);
+   write_u32(x2);
+}
+
+void rsx_dump_set_vertical_display_range(uint16_t y1, uint16_t y2);
+{
+   if (!file)
+      return;
+   write_u32(RSX_VERTICAL_RANGE);
+   write_u32(y1);
+   write_u32(y2);
+}
+
+void rsx_dump_set_display_mode(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool depth_24bpp, bool is_pal, bool is_480i, int width_mode)
 {
    if (!file)
       return;
@@ -140,6 +160,9 @@ void rsx_dump_set_display_mode(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
    write_u32(w);
    write_u32(h);
    write_u32(depth_24bpp);
+   write_u32(is_pal);
+   write_u32(is_480i);
+   write_u32(width_mode);
 }
 
 void rsx_dump_triangle(const struct rsx_dump_vertex *vertices, const struct rsx_render_state *state)

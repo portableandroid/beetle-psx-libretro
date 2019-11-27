@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include <boolean.h>
 #include <libretro.h>
@@ -215,6 +216,17 @@ struct ImageLoadVertex {
    static std::vector<Attribute> attributes();
 };
 
+struct GlDisplayRect
+{
+   /* Analogous to DisplayRect in the Vulkan
+    * renderer,but specified in native unscaled
+    * glViewport coordinates. */
+   int32_t x;
+   int32_t y;
+   uint32_t width;
+   uint32_t height;
+};
+
 struct DrawConfig
 {
    uint16_t display_top_left[2];
@@ -224,6 +236,10 @@ struct DrawConfig
    int16_t  draw_offset[2];
    uint16_t draw_area_top_left[2];
    uint16_t draw_area_bot_right[2];
+   uint16_t display_area_hrange[2];
+   uint16_t display_area_vrange[2];
+   bool     is_pal;
+   bool     is_480i;
 };
 
 struct Texture
@@ -241,7 +257,7 @@ struct Framebuffer
 
 struct PrimitiveBatch {
    SemiTransparencyMode transparency_mode;
-	/* GL_TRIANGLES or GL_LINES */
+   /* GL_TRIANGLES or GL_LINES */
    GLenum draw_mode;
    bool opaque;
    bool set_mask;
@@ -326,6 +342,21 @@ struct GlRenderer {
    /* When true we display the entire VRAM buffer instead of just
     * the visible area */
    bool display_vram;
+
+   /* Display Mode - GP1(08h) */
+   enum width_modes curr_width_mode;
+
+   /* When true we perform no horizontal padding */
+   bool crop_overscan;
+
+   /* Experimental offset feature */
+   int32_t image_offset_cycles;
+
+   /* Scanline core options */
+   int32_t initial_scanline;
+   int32_t initial_scanline_pal;
+   int32_t last_scanline;
+   int32_t last_scanline_pal;
 };
 
 struct RetroGl
@@ -344,6 +375,10 @@ static DrawConfig persistent_config = {
    {0, 0},         /* draw_area_top_left */
    {0, 0},         /* draw_area_dimensions */
    {0, 0},         /* draw_offset */
+   {0x200, 0xC00}, /* display_area_hrange (hardware reset values)*/
+   {0x10, 0x100},  /* display_area_vrange (hardware reset values)*/ 
+   false,          /* is_pal */
+   false,          /* is_480i */
 };
 
 static RetroGl static_renderer;
@@ -960,8 +995,8 @@ static void GlRenderer_draw(GlRenderer *renderer)
    Framebuffer_init(&_fb, &renderer->fb_out);
 
    glFramebufferTexture(   GL_DRAW_FRAMEBUFFER,
-		 GL_DEPTH_STENCIL_ATTACHMENT,
-		 renderer->fb_out_depth.id,
+         GL_DEPTH_STENCIL_ATTACHMENT,
+         renderer->fb_out_depth.id,
          0);
 
    glClear(GL_DEPTH_BUFFER_BIT);
@@ -980,80 +1015,80 @@ static void GlRenderer_draw(GlRenderer *renderer)
    renderer->command_buffer->map = NULL;
 
    if (!renderer->batches.empty())
-	  renderer->batches.back().count = renderer->vertex_index_pos
-		 - renderer->batches.back().first;
+      renderer->batches.back().count = renderer->vertex_index_pos
+         - renderer->batches.back().first;
 
    for (std::vector<PrimitiveBatch>::iterator it =
-		  renderer->batches.begin();
-		  it != renderer->batches.end();
-		  ++it)
+         renderer->batches.begin();
+         it != renderer->batches.end();
+         ++it)
    {
-	  /* Mask bits */
-	  if (it->set_mask)
-		 glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-	  else
-		 glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+      /* Mask bits */
+      if (it->set_mask)
+         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+      else
+         glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
 
-	  if (it->mask_test)
-		 glStencilFunc(GL_NOTEQUAL, 1, 1);
-	  else
-		 glStencilFunc(GL_ALWAYS, 1, 1);
+      if (it->mask_test)
+         glStencilFunc(GL_NOTEQUAL, 1, 1);
+      else
+         glStencilFunc(GL_ALWAYS, 1, 1);
 
-	  /* Blending */
-	  bool opaque = it->opaque;
-	  if (renderer->command_buffer->program)
-		 glUniform1ui(renderer->command_buffer->program->uniforms["draw_semi_transparent"], !opaque);
-	  if (opaque)
-		 glDisable(GL_BLEND);
-	  else
-	  {
-		 glEnable(GL_BLEND);
+      /* Blending */
+      bool opaque = it->opaque;
+      if (renderer->command_buffer->program)
+         glUniform1ui(renderer->command_buffer->program->uniforms["draw_semi_transparent"], !opaque);
+      if (opaque)
+         glDisable(GL_BLEND);
+      else
+      {
+         glEnable(GL_BLEND);
 
-		 GLenum blend_func = GL_FUNC_ADD;
-		 GLenum blend_src = GL_CONSTANT_ALPHA;
-		 GLenum blend_dst = GL_CONSTANT_ALPHA;
+         GLenum blend_func = GL_FUNC_ADD;
+         GLenum blend_src = GL_CONSTANT_ALPHA;
+         GLenum blend_dst = GL_CONSTANT_ALPHA;
 
-		 switch (it->transparency_mode)
-       {
-          /* 0.5xB + 0.5 x F */
-          case SemiTransparencyMode_Average:
-             blend_func = GL_FUNC_ADD;
-             /* Set to 0.5 with glBlendColor */
-             blend_src = GL_CONSTANT_ALPHA;
-             blend_dst = GL_CONSTANT_ALPHA;
-             break;
-             /* 1.0xB + 1.0 x F */
-          case SemiTransparencyMode_Add:
-             blend_func = GL_FUNC_ADD;
-             blend_src = GL_ONE;
-             blend_dst = GL_ONE;
-             break;
-             /* 1.0xB - 1.0 x F */
-          case SemiTransparencyMode_SubtractSource:
-             blend_func = GL_FUNC_REVERSE_SUBTRACT;
-             blend_src = GL_ONE;
-             blend_dst = GL_ONE;
-             break;
-          case SemiTransparencyMode_AddQuarterSource:
-             blend_func = GL_FUNC_ADD;
-             blend_src = GL_CONSTANT_COLOR;
-             blend_dst = GL_ONE;
-             break;
-       }
+         switch (it->transparency_mode)
+         {
+            /* 0.5xB + 0.5 x F */
+            case SemiTransparencyMode_Average:
+               blend_func = GL_FUNC_ADD;
+               /* Set to 0.5 with glBlendColor */
+               blend_src = GL_CONSTANT_ALPHA;
+               blend_dst = GL_CONSTANT_ALPHA;
+               break;
+            /* 1.0xB + 1.0 x F */
+            case SemiTransparencyMode_Add:
+               blend_func = GL_FUNC_ADD;
+               blend_src = GL_ONE;
+               blend_dst = GL_ONE;
+               break;
+            /* 1.0xB - 1.0 x F */
+            case SemiTransparencyMode_SubtractSource:
+               blend_func = GL_FUNC_REVERSE_SUBTRACT;
+               blend_src = GL_ONE;
+               blend_dst = GL_ONE;
+               break;
+            case SemiTransparencyMode_AddQuarterSource:
+               blend_func = GL_FUNC_ADD;
+               blend_src = GL_CONSTANT_COLOR;
+               blend_dst = GL_ONE;
+               break;
+         }
 
-		 glBlendFuncSeparate(blend_src, blend_dst, GL_ONE, GL_ZERO);
-		 glBlendEquationSeparate(blend_func, GL_FUNC_ADD);
-	  }
+         glBlendFuncSeparate(blend_src, blend_dst, GL_ONE, GL_ZERO);
+         glBlendEquationSeparate(blend_func, GL_FUNC_ADD);
+      }
 
-	  /* Drawing */
-	  if (!DRAWBUFFER_IS_EMPTY(renderer->command_buffer))
-	  {
-		 /* This method doesn't call prepare_draw/finalize_draw itself, it
-		  * must be handled by the caller. This is because this command
-		  * can be called several times on the same buffer (i.e. multiple
-		  * draw calls between the prepare/finalize) */
-		 glDrawElements(it->draw_mode, it->count, GL_UNSIGNED_SHORT, &renderer->vertex_indices[it->first]);
-	  }
+      /* Drawing */
+      if (!DRAWBUFFER_IS_EMPTY(renderer->command_buffer))
+      {
+         /* This method doesn't call prepare_draw/finalize_draw itself, it
+          * must be handled by the caller. This is because this command
+          * can be called several times on the same buffer (i.e. multiple
+          * draw calls between the prepare/finalize) */
+         glDrawElements(it->draw_mode, it->count, GL_UNSIGNED_SHORT, &renderer->vertex_indices[it->first]);
+      }
    }
 
    glDisable(GL_STENCIL_TEST);
@@ -1149,7 +1184,6 @@ static void get_variables(uint8_t *upscaling, bool *display_vram)
    struct retro_variable var = {0};
 
    var.key = BEETLE_OPT(internal_resolution);
-
    if (upscaling)
    {
       if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -1190,7 +1224,63 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    if (!renderer)
       return false;
 
+   var.key = BEETLE_OPT(renderer_software_fb);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         has_software_fb = true;
+      else
+         has_software_fb = false;
+   }
+   else
+      has_software_fb = true;
+
    get_variables(&upscaling, &display_vram);
+
+   var.key = BEETLE_OPT(crop_overscan);
+   bool crop_overscan = true;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         crop_overscan = true;
+      else if (!strcmp(var.value, "disabled"))
+         crop_overscan = false;
+   }
+
+   int32_t image_offset_cycles = 0;
+   var.key = BEETLE_OPT(image_offset_cycles);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      image_offset_cycles = atoi(var.value);
+   }
+
+   int32_t initial_scanline = 0;
+   var.key = BEETLE_OPT(initial_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline = atoi(var.value);
+   }
+
+   int32_t last_scanline = 239;
+   var.key = BEETLE_OPT(last_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline = atoi(var.value);
+   }
+
+   int32_t initial_scanline_pal = 0;
+   var.key = BEETLE_OPT(initial_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline_pal = atoi(var.value);
+   }
+
+   int32_t last_scanline_pal = 287;
+   var.key = BEETLE_OPT(last_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline_pal = atoi(var.value);
+   }
 
    var.key = BEETLE_OPT(filter);
    uint8_t filter = FILTER_MODE_NEAREST;
@@ -1304,10 +1394,11 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    {
       /* Dithering is superfluous when we increase the internal
       * color depth, but users asked for it */
-	   DrawBuffer_disable_attribute(command_buffer, "dither");
-   } else
+      DrawBuffer_disable_attribute(command_buffer, "dither");
+   }
+   else
    {
-	   DrawBuffer_enable_attribute(command_buffer, "dither");
+      DrawBuffer_enable_attribute(command_buffer, "dither");
    }
 
    GLenum command_draw_mode = wireframe ? GL_LINE : GL_FILL;
@@ -1344,7 +1435,7 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
          &renderer->fb_out_depth,
          renderer->fb_out.width,
          renderer->fb_out.height,
-			GL_DEPTH24_STENCIL8);
+         GL_DEPTH24_STENCIL8);
 
    renderer->filter_type = filter;
    renderer->command_buffer = command_buffer;
@@ -1359,6 +1450,13 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    renderer->frontend_resolution[1] = 0;
    renderer->internal_upscaling = upscaling;
    renderer->internal_color_depth = depth;
+   renderer->crop_overscan = crop_overscan;
+   renderer->image_offset_cycles = image_offset_cycles;
+   renderer->curr_width_mode = WIDTH_MODE_320;
+   renderer->initial_scanline = initial_scanline;
+   renderer->last_scanline = last_scanline;
+   renderer->initial_scanline_pal = initial_scanline_pal;
+   renderer->last_scanline_pal = last_scanline_pal;
    renderer->primitive_ordering = 0;
    renderer->tex_x_mask = 0;
    renderer->tex_x_or = 0;
@@ -1417,7 +1515,7 @@ static void GlRenderer_free(GlRenderer *renderer)
 
    unsigned i;
    for (i = 0; i < INDEX_BUFFER_LEN; i++)
-	  renderer->vertex_indices[i] = 0;
+      renderer->vertex_indices[i] = 0;
 }
 
 static inline void apply_scissor(GlRenderer *renderer)
@@ -1445,6 +1543,78 @@ static inline void apply_scissor(GlRenderer *renderer)
    glScissor(x, y, w, h);
 }
 
+static GlDisplayRect compute_gl_display_rect(GlRenderer *renderer)
+{
+   /* Current function logic mostly backported from Vulkan renderer */
+
+   int32_t clock_div;
+   switch (renderer->curr_width_mode)
+   {
+      case WIDTH_MODE_256:
+         clock_div = 10;
+         break;
+
+      case WIDTH_MODE_320:
+         clock_div = 8;
+         break;
+
+      case WIDTH_MODE_512:
+         clock_div = 5;
+         break;
+
+      case WIDTH_MODE_640:
+         clock_div = 4;
+         break;
+
+      /* The unusual case: 368px mode. Width is 364 px for
+       * typical 368 mode games but often times something
+       * different, which necessitates checking width mode 
+       * rather than calculated pixel width */
+      case WIDTH_MODE_368:
+         clock_div = 7;
+         break;
+
+      default: //should never be here -- if we're here, something is terribly wrong
+         break;
+   }
+
+   uint32_t width;
+   int32_t x;
+   if (renderer->crop_overscan)
+   {
+      width = (uint32_t) (2560/clock_div);
+      int32_t offset_cycles = renderer->image_offset_cycles;
+      int32_t h_start = (int32_t) renderer->config.display_area_hrange[0];
+      x = floor((h_start - 608 + offset_cycles) / (double) clock_div);
+   }
+   else
+   {
+      width = (uint32_t) (2800/clock_div);
+      int32_t offset_cycles = renderer->image_offset_cycles;
+      int32_t h_start = (int32_t) renderer->config.display_area_hrange[0];
+      x = floor((h_start - 488 + offset_cycles) / (double) clock_div);
+   }
+
+   uint32_t height;
+   int32_t y;
+   if (renderer->config.is_pal)
+   {
+      int h = renderer->last_scanline_pal - renderer->initial_scanline_pal + 1;
+      height = (h < 0 ? 0 : (uint32_t) h);
+      y = (308 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline_pal - 287);
+   }
+   else
+   {
+      int h = renderer->last_scanline - renderer->initial_scanline + 1;
+      height = (h < 0 ? 0 : (uint32_t) h);
+      y = (256 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline - 239);
+   }
+   height *= (renderer->config.is_480i ? 2 : 1);
+   y *= (renderer->config.is_480i ? 2 : 1);
+
+   return {x, y, width, height};
+}
+
 static void bind_libretro_framebuffer(GlRenderer *renderer)
 {
    GLuint fbo;
@@ -1452,21 +1622,48 @@ static void bind_libretro_framebuffer(GlRenderer *renderer)
    uint32_t upscale   = renderer->internal_upscaling;
    uint32_t f_w       = renderer->frontend_resolution[0];
    uint32_t f_h       = renderer->frontend_resolution[1];
-   uint16_t _w        = renderer->config.display_resolution[0];
-   uint16_t _h        = renderer->config.display_resolution[1];
+   uint32_t _w        = renderer->config.display_resolution[0];
+   uint32_t _h        = renderer->config.display_resolution[1];
    float aspect_ratio = widescreen_hack ? 16.0 / 9.0 : 
       MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO;
 
+   /* vp_w and vp_h currently contingent on rsx_intf_set_display_mode behavior... */
+   uint32_t vp_w = renderer->config.display_resolution[0];
+   uint32_t vp_h = renderer->config.display_resolution[1];
+
+   int32_t x, y;
+   int32_t _x = 0;
+   int32_t _y = 0;
+
    if (renderer->display_vram)
    {
+      _x           = 0;
+      _y           = 0;
       _w           = VRAM_WIDTH_PIXELS;
       _h           = VRAM_HEIGHT;
+
+      //override vram fb dimensions for viewport
+      vp_w = _w;
+      vp_h = _h;
+
       /* Is this accurate? */
       aspect_ratio = 2.0 / 1.0;
    }
+   else
+   {
+      GlDisplayRect disp_rect = compute_gl_display_rect(renderer);
+      _x = disp_rect.x;
+      _y = disp_rect.y;
+      _w = disp_rect.width;
+      _h = disp_rect.height;
+   }
 
+   x       = _x * (int32_t) upscale;
+   y       = _y * (int32_t) upscale;
    w       = (uint32_t) _w * upscale;
    h       = (uint32_t) _h * upscale;
+   vp_w   *= upscale;
+   vp_h   *= upscale;
 
    if (w != f_w || h != f_h)
    {
@@ -1490,7 +1687,7 @@ static void bind_libretro_framebuffer(GlRenderer *renderer)
    /* Bind the output framebuffer provided by the frontend */
    fbo = glsm_get_current_framebuffer();
    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
-   glViewport(0, 0, (GLsizei) w, (GLsizei) h);
+   glViewport((GLsizei) x, (GLsizei) y, (GLsizei) vp_w, (GLsizei) vp_h);
 }
 
 static bool retro_refresh_variables(GlRenderer *renderer)
@@ -1501,7 +1698,6 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    struct retro_variable var = {0};
 
    var.key = BEETLE_OPT(renderer_software_fb);
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (!strcmp(var.value, "enabled"))
@@ -1516,8 +1712,52 @@ static bool retro_refresh_variables(GlRenderer *renderer)
 
    get_variables(&upscaling, &display_vram);
 
-   var.key = BEETLE_OPT(filter);
+   var.key = BEETLE_OPT(crop_overscan);
+   bool crop_overscan = true;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         crop_overscan = true;
+      else if (!strcmp(var.value, "disabled"))
+         crop_overscan = false;
+   }
 
+   int32_t image_offset_cycles;
+   var.key = BEETLE_OPT(image_offset_cycles);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      image_offset_cycles = atoi(var.value);
+   }
+
+   int32_t initial_scanline = 0;
+   var.key = BEETLE_OPT(initial_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline = atoi(var.value);
+   }
+
+   int32_t last_scanline = 239;
+   var.key = BEETLE_OPT(last_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline = atoi(var.value);
+   }
+
+   int32_t initial_scanline_pal = 0;
+   var.key = BEETLE_OPT(initial_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline_pal = atoi(var.value);
+   }
+
+   int32_t last_scanline_pal = 287;
+   var.key = BEETLE_OPT(last_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline_pal = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(filter);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (!strcmp(var.value, "nearest"))
@@ -1536,7 +1776,6 @@ static bool retro_refresh_variables(GlRenderer *renderer)
 
    var.key = BEETLE_OPT(depth);
    uint8_t depth = 16;
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (!strcmp(var.value, "32bpp"))
@@ -1547,22 +1786,21 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    dither_mode dither_mode = DITHER_NATIVE;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-	   if (!strcmp(var.value, "1x(native)"))
-	   {
-		   dither_mode = DITHER_NATIVE;
-		   DrawBuffer_enable_attribute(renderer->command_buffer, "dither");
-	   }
-
-	   else if (!strcmp(var.value, "internal resolution"))
-	   {
-		   dither_mode = DITHER_UPSCALED;
-		   DrawBuffer_enable_attribute(renderer->command_buffer, "dither");
-	   }
-	   else if (!strcmp(var.value, "disabled"))
-	   {
-		   dither_mode  = DITHER_OFF;
-		   DrawBuffer_disable_attribute(renderer->command_buffer, "dither");
-	   }
+      if (!strcmp(var.value, "1x(native)"))
+      {
+         dither_mode = DITHER_NATIVE;
+         DrawBuffer_enable_attribute(renderer->command_buffer, "dither");
+      }
+      else if (!strcmp(var.value, "internal resolution"))
+      {
+         dither_mode = DITHER_UPSCALED;
+         DrawBuffer_enable_attribute(renderer->command_buffer, "dither");
+      }
+      else if (!strcmp(var.value, "disabled"))
+      {
+         dither_mode  = DITHER_OFF;
+         DrawBuffer_disable_attribute(renderer->command_buffer, "dither");
+      }
    }
 
    var.key = BEETLE_OPT(wireframe);
@@ -1579,7 +1817,7 @@ static bool retro_refresh_variables(GlRenderer *renderer)
 
    if (rebuild_fb_out)
    {
-	  if (dither_mode == DITHER_OFF)
+      if (dither_mode == DITHER_OFF)
          DrawBuffer_disable_attribute(renderer->command_buffer, "dither");
       else
          DrawBuffer_enable_attribute(renderer->command_buffer, "dither");
@@ -1651,6 +1889,12 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    renderer->display_vram           = display_vram;
    renderer->internal_color_depth   = depth;
    renderer->filter_type            = filter;
+   renderer->crop_overscan          = crop_overscan;
+   renderer->image_offset_cycles    = image_offset_cycles;
+   renderer->initial_scanline       = initial_scanline;
+   renderer->last_scanline          = last_scanline;
+   renderer->initial_scanline_pal   = initial_scanline_pal;
+   renderer->last_scanline_pal      = last_scanline_pal;
 
    return reconfigure_frontend;
 }
@@ -1661,8 +1905,8 @@ static void vertex_preprocessing(
       unsigned count,
       GLenum mode,
       SemiTransparencyMode stm,
-	  bool mask_test,
-	  bool set_mask)
+      bool mask_test,
+      bool set_mask)
 {
    if (!renderer)
       return;
@@ -1686,7 +1930,6 @@ static void vertex_preprocessing(
 
    int16_t z = renderer->primitive_ordering;
    renderer->primitive_ordering += 1;
-   
 
    for (unsigned i = 0; i < count; i++)
    {
@@ -1698,56 +1941,56 @@ static void vertex_preprocessing(
    }
 
    if (renderer->batches.empty()
-		 || mode != renderer->command_draw_mode
-		 || is_opaque != renderer->opaque
-		 || (is_semi_transparent &&
-			   stm != renderer->semi_transparency_mode)
-		 || renderer->set_mask != set_mask
-		 || renderer->mask_test != mask_test)
+       || mode != renderer->command_draw_mode
+       || is_opaque != renderer->opaque
+       || (is_semi_transparent &&
+           stm != renderer->semi_transparency_mode)
+       || renderer->set_mask != set_mask
+       || renderer->mask_test != mask_test)
    {
-	  if (!renderer->batches.empty())
-	  {
-		 PrimitiveBatch& last_batch = renderer->batches.back();
-		 last_batch.count = renderer->vertex_index_pos - last_batch.first;
-	  }
-	  PrimitiveBatch batch;
-	  batch.opaque = is_opaque;
-	  batch.draw_mode = mode;
-	  batch.transparency_mode = stm;
-	  batch.set_mask = set_mask;
-	  batch.mask_test = mask_test;
-	  batch.first = renderer->vertex_index_pos;
-	  batch.count = 0;
-	  renderer->batches.push_back(batch);
+      if (!renderer->batches.empty())
+      {
+         PrimitiveBatch& last_batch = renderer->batches.back();
+         last_batch.count = renderer->vertex_index_pos - last_batch.first;
+      }
+      PrimitiveBatch batch;
+      batch.opaque = is_opaque;
+      batch.draw_mode = mode;
+      batch.transparency_mode = stm;
+      batch.set_mask = set_mask;
+      batch.mask_test = mask_test;
+      batch.first = renderer->vertex_index_pos;
+      batch.count = 0;
+      renderer->batches.push_back(batch);
 
-	  renderer->semi_transparency_mode = stm;
-	  renderer->command_draw_mode = mode;
-	  renderer->opaque = is_opaque;
-	  renderer->set_mask = set_mask;
-	  renderer->mask_test = mask_test;
+      renderer->semi_transparency_mode = stm;
+      renderer->command_draw_mode = mode;
+      renderer->opaque = is_opaque;
+      renderer->set_mask = set_mask;
+      renderer->mask_test = mask_test;
    }
 }
 
 static void vertex_add_blended_pass(
-	  GlRenderer *renderer, int vertex_index)
+      GlRenderer *renderer, int vertex_index)
 {
    if (!renderer->batches.empty())
    {
-	  PrimitiveBatch& last_batch = renderer->batches.back();
-	  last_batch.count = renderer->vertex_index_pos - last_batch.first;
+      PrimitiveBatch& last_batch = renderer->batches.back();
+      last_batch.count = renderer->vertex_index_pos - last_batch.first;
 
-	  PrimitiveBatch batch;
-	  batch.opaque = false;
-	  batch.draw_mode = last_batch.draw_mode;
-	  batch.transparency_mode = last_batch.transparency_mode;
-	  batch.set_mask = true;
-	  batch.mask_test = last_batch.mask_test;
-	  batch.first = vertex_index;
-	  batch.count = 0;
-	  renderer->batches.push_back(batch);
+      PrimitiveBatch batch;
+      batch.opaque = false;
+      batch.draw_mode = last_batch.draw_mode;
+      batch.transparency_mode = last_batch.transparency_mode;
+      batch.set_mask = true;
+      batch.mask_test = last_batch.mask_test;
+      batch.first = vertex_index;
+      batch.count = 0;
+      renderer->batches.push_back(batch);
 
-	  renderer->opaque = false;
-	  renderer->set_mask = true;
+      renderer->opaque = false;
+      renderer->set_mask = true;
    }
 }
 
@@ -1757,8 +2000,8 @@ static void push_primitive(
       unsigned count,
       GLenum mode,
       SemiTransparencyMode stm,
-	  bool mask_test,
-	  bool set_mask)
+      bool mask_test,
+      bool set_mask)
 {
    if (!renderer)
       return;
@@ -2044,7 +2287,7 @@ static bool rsx_gl_open(bool is_pal)
    retro_pixel_format f = RETRO_PIXEL_FORMAT_XRGB8888;
    VideoClock clock = is_pal ? VideoClock_Pal : VideoClock_Ntsc;
 
-   if ( !environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &f) )
+   if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &f))
       return false;
 
    /* glsm related setup */
@@ -2059,7 +2302,7 @@ static bool rsx_gl_open(bool is_pal)
    params.major                 = 3;
    params.minor                 = 3;
 
-   if ( !glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params) )
+   if (!glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
       return false;
 
    /* No context until 'context_reset' is called */
@@ -2093,8 +2336,7 @@ static void rsx_gl_refresh_variables(void)
 
       /* This call can potentially (but not necessarily) call
        * 'context_destroy' and 'context_reset' to reinitialize */
-      bool ok                             = 
-         environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &av_info);
+      bool ok = environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &av_info);
 
       if (!ok)
       {
@@ -2144,6 +2386,12 @@ static void rsx_gl_finalize_frame(const void *fb, unsigned width,
    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
    glDisable(GL_DEPTH_TEST);
    glDisable(GL_BLEND);
+
+   /* Clear the screen no matter what: prevents possible leftover 
+      pixels from previous frame when loading save state for any 
+      games not using standard framebuffer heights */
+   glClearColor(0.0, 0.0, 0.0, 0.0);
+   glClear(GL_COLOR_BUFFER_BIT);
 
    /* If the display is off, just clear the screen */
    if (renderer->config.display_off && !renderer->display_vram)
@@ -2330,7 +2578,7 @@ static void rsx_gl_push_quad(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       },
       {
          {p1x, p1y, 0.95, p1w }, /* position */
@@ -2346,7 +2594,7 @@ static void rsx_gl_push_quad(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       },
       {
          {p2x, p2y, 0.95, p2w }, /* position */
@@ -2362,7 +2610,7 @@ static void rsx_gl_push_quad(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       },
       {
          {p3x, p3y, 0.95, p3w }, /* position */
@@ -2378,7 +2626,7 @@ static void rsx_gl_push_quad(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 { min_u, min_v, max_u, max_v },
+         { min_u, min_v, max_u, max_v },
       },
    };
 
@@ -2392,11 +2640,11 @@ static void rsx_gl_push_quad(
    unsigned index_pos = renderer->vertex_index_pos;
 
    for (unsigned i = 0; i < 6; i++)
-	  renderer->vertex_indices[renderer->vertex_index_pos++] = index + indices[i];
+      renderer->vertex_indices[renderer->vertex_index_pos++] = index + indices[i];
 
    /* Add transparent pass if needed */
    if (is_semi_transparent && is_textured)
-	  vertex_add_blended_pass(renderer, index_pos);
+      vertex_add_blended_pass(renderer, index_pos);
 
    DrawBuffer_push_slice(renderer->command_buffer, v, 4,
          sizeof(CommandVertex));
@@ -2466,7 +2714,7 @@ static void rsx_gl_push_triangle(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       },
       {
          {p1x, p1y, 0.95, p1w }, /* position */
@@ -2482,7 +2730,7 @@ static void rsx_gl_push_triangle(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       },
       {
          {p2x, p2y, 0.95, p2w }, /* position */
@@ -2498,7 +2746,7 @@ static void rsx_gl_push_triangle(
          depth_shift,
          (uint8_t) dither,
          semi_transparent,
-		 {min_u, min_v, max_u, max_v},
+         {min_u, min_v, max_u, max_v},
       }
    };
 
@@ -2579,7 +2827,7 @@ static void rsx_gl_copy_rect(
    GlRenderer *renderer = static_renderer.state_data;
 
    if (src_x == dst_x && src_y == dst_y)
-	  return;
+      return;
 
    renderer->set_mask          = mask_set_or != 0;
    renderer->mask_test         = mask_eval_and != 0;
@@ -2835,6 +3083,12 @@ static unsigned msaa = 1;
 static bool mdec_yuv;
 static vector<function<void ()>> defer;
 static dither_mode dither_mode = DITHER_NATIVE;
+static bool crop_overscan;
+static int image_offset_cycles;
+static int initial_scanline;
+static int last_scanline;
+static int initial_scanline_pal;
+static int last_scanline_pal;
 
 static retro_video_refresh_t video_refresh_cb;
 
@@ -2962,8 +3216,8 @@ static bool rsx_vulkan_open(bool is_pal)
 static void rsx_vulkan_refresh_variables(void)
 {
    struct retro_variable var = {0};
-   var.key = BEETLE_OPT(renderer_software_fb);
 
+   var.key = BEETLE_OPT(renderer_software_fb);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (!strcmp(var.value, "enabled"))
@@ -3013,7 +3267,7 @@ static void rsx_vulkan_refresh_variables(void)
    var.key = BEETLE_OPT(msaa);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-	  msaa = strtoul(var.value, nullptr, 0);
+      msaa = strtoul(var.value, nullptr, 0);
    }
 
    var.key = BEETLE_OPT(mdec_yuv);
@@ -3035,6 +3289,45 @@ static void rsx_vulkan_refresh_variables(void)
          dither_mode = DITHER_OFF;
    }
 
+   var.key = BEETLE_OPT(crop_overscan);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "enabled"))
+         crop_overscan = true;
+      else
+         crop_overscan = false;
+   }
+
+   var.key = BEETLE_OPT(image_offset_cycles);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      image_offset_cycles = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(initial_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(last_scanline);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(initial_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      initial_scanline_pal = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(last_scanline_pal);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      last_scanline_pal = atoi(var.value);
+   }
+
    var.key = BEETLE_OPT(widescreen_hack);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
@@ -3044,6 +3337,7 @@ static void rsx_vulkan_refresh_variables(void)
          widescreen_hack = false;
    }
 
+   // Changing crop_overscan and scanlines will likely need to be included here in future geometry fixes
    if ((old_scaling != scaling || old_super_sampling != super_sampling || old_msaa != msaa) && renderer)
    {
       retro_system_av_info info;
@@ -3062,6 +3356,9 @@ static void rsx_vulkan_finalize_frame(const void *fb, unsigned width,
 {
    renderer->set_adaptive_smoothing(adaptive_smoothing);
    renderer->set_dither_native_resolution(dither_mode == DITHER_NATIVE);
+   renderer->set_horizontal_overscan_cropping(crop_overscan);
+   renderer->set_horizontal_offset_cycles(image_offset_cycles);
+   renderer->set_visible_scanlines(initial_scanline, last_scanline, initial_scanline_pal, last_scanline_pal);
 
    if (renderer->get_scanout_mode() == Renderer::ScanoutMode::BGR24)
       renderer->set_display_filter(mdec_yuv ? Renderer::ScanoutFilter::MDEC_YUV : Renderer::ScanoutFilter::None);
@@ -3428,23 +3725,29 @@ bool rsx_intf_open(bool is_pal, bool force_software)
        * we are running in software mode */
       software_selected = true;
 
-#if defined(HAVE_VULKAN)
-   if (!software_selected && rsx_vulkan_open(is_pal))
+   if (!software_selected)
    {
-      rsx_type       = RSX_VULKAN;
-      vk_initialized = true;
-      goto end;
-   }
+      unsigned preferred; // This will be set to a const value if GET_PREFERRED_HW_RENDER is not supported by frontend
+      if (!environ_cb(RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER, &preferred)) preferred = 0xFFFFFFFF;
+
+#if defined(HAVE_VULKAN)
+      if ((preferred == 0xFFFFFFFF || (preferred != RETRO_HW_CONTEXT_OPENGL_CORE && preferred != RETRO_HW_CONTEXT_OPENGL)) && rsx_vulkan_open(is_pal))
+      {
+         rsx_type       = RSX_VULKAN;
+         vk_initialized = true;
+         goto end;
+      }
 #endif
 
 #if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
-   if (!software_selected && rsx_gl_open(is_pal))
-   {
-      rsx_type       = RSX_OPENGL;
-      gl_initialized = true;
-      goto end;
-   }
+      if (rsx_gl_open(is_pal))
+      {
+         rsx_type       = RSX_OPENGL;
+         gl_initialized = true;
+         goto end;
+      }
 #endif
+   }
 
    if (rsx_soft_open(is_pal))
       goto end;
@@ -3670,7 +3973,7 @@ void rsx_intf_set_draw_offset(int16_t x, int16_t y)
 }
 
 void rsx_intf_set_draw_area(uint16_t x0, uint16_t y0,
-			                   uint16_t x1, uint16_t y1)
+                            uint16_t x1, uint16_t y1)
 {
 #ifdef RSX_DUMP
    rsx_dump_set_draw_area(x0, y0, x1, y1);
@@ -3727,12 +4030,92 @@ void rsx_intf_set_draw_area(uint16_t x0, uint16_t y0,
    }
 }
 
-void rsx_intf_set_display_mode(uint16_t x, uint16_t y,
-                               uint16_t w, uint16_t h,
-                               bool depth_24bpp)
+void rsx_intf_set_horizontal_display_range(uint16_t x1, uint16_t x2)
 {
 #ifdef RSX_DUMP
-   rsx_dump_set_display_mode(x, y, w, h, depth_24bpp);
+   rsx_dump_set_horizontal_display_range(x1, x2);
+#endif
+
+   switch (rsx_type)
+   {
+      case RSX_SOFTWARE:
+         break;
+      case RSX_OPENGL:
+#if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
+         {
+            GlRenderer *renderer = static_renderer.state_data;
+            if (static_renderer.state != GlState_Invalid
+                  && renderer)
+            {
+               renderer->config.display_area_hrange[0] = x1;
+               renderer->config.display_area_hrange[1] = x2;
+            }
+         }
+#endif
+         break;
+      case RSX_VULKAN:
+#if defined(HAVE_VULKAN)
+         if (renderer)
+            renderer->set_horizontal_display_range(x1, x2);
+         else
+         {
+            defer.push_back([=]() {
+               renderer->set_horizontal_display_range(x1, x2);
+            });
+         }
+#endif
+         break;
+   }
+}
+
+void rsx_intf_set_vertical_display_range(uint16_t y1, uint16_t y2)
+{
+#ifdef RSX_DUMP
+   rsx_dump_set_vertical_display_range(y1, y2);
+#endif
+
+   switch (rsx_type)
+   {
+      case RSX_SOFTWARE:
+         break;
+      case RSX_OPENGL:
+#if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
+         {
+            GlRenderer *renderer = static_renderer.state_data;
+            if (static_renderer.state != GlState_Invalid
+                  && renderer)
+            {
+               renderer->config.display_area_vrange[0] = y1;
+               renderer->config.display_area_vrange[1] = y2;
+            }
+         }
+#endif
+         break;
+      case RSX_VULKAN:
+#if defined(HAVE_VULKAN)
+         if (renderer)
+            renderer->set_vertical_display_range(y1, y2);
+         else
+         {
+            defer.push_back([=]() {
+               renderer->set_vertical_display_range(y1, y2);
+            });
+         }
+#endif
+         break;
+   }
+}
+
+
+void rsx_intf_set_display_mode(uint16_t x, uint16_t y,
+                               uint16_t w, uint16_t h,
+                               bool depth_24bpp,
+                               bool is_pal, 
+                               bool is_480i,
+                               int width_mode)
+{
+#ifdef RSX_DUMP
+   rsx_dump_set_display_mode(x, y, w, h, depth_24bpp, is_pal, is_480i, width_mode);
 #endif
 
    switch (rsx_type)
@@ -3752,6 +4135,11 @@ void rsx_intf_set_display_mode(uint16_t x, uint16_t y,
                renderer->config.display_resolution[0] = w;
                renderer->config.display_resolution[1] = h;
                renderer->config.display_24bpp         = depth_24bpp;
+
+               renderer->config.is_pal  = is_pal;
+               renderer->config.is_480i = is_480i;
+
+               renderer->curr_width_mode = (enum width_modes) width_mode;
             }
          }
 #endif
@@ -3759,11 +4147,13 @@ void rsx_intf_set_display_mode(uint16_t x, uint16_t y,
       case RSX_VULKAN:
 #if defined(HAVE_VULKAN)
          if (renderer)
-            renderer->set_display_mode({ x, y, w, h }, get_scanout_mode(depth_24bpp));
+            renderer->set_display_mode({ x, y, w, h }, get_scanout_mode(depth_24bpp), is_pal,
+                                       is_480i, static_cast<Renderer::WidthMode>(width_mode));
          else
          {
             defer.push_back([=]() {
-                  renderer->set_display_mode({ x, y, w, h }, get_scanout_mode(depth_24bpp));
+                  renderer->set_display_mode({ x, y, w, h }, get_scanout_mode(depth_24bpp), is_pal,
+                                             is_480i, static_cast<Renderer::WidthMode>(width_mode));
                   });
          }
 #endif
@@ -3781,8 +4171,8 @@ void rsx_intf_push_triangle(
       uint16_t t0x, uint16_t t0y,
       uint16_t t1x, uint16_t t1y,
       uint16_t t2x, uint16_t t2y,
-	  uint16_t min_u, uint16_t min_v,
-	  uint16_t max_u, uint16_t max_v,
+      uint16_t min_u, uint16_t min_v,
+      uint16_t max_u, uint16_t max_v,
       uint16_t texpage_x, uint16_t texpage_y,
       uint16_t clut_x, uint16_t clut_y,
       uint8_t texture_blend_mode,
@@ -3840,23 +4230,23 @@ void rsx_intf_push_triangle(
 }
 
 void rsx_intf_push_quad(
-	float p0x, float p0y, float p0w,
-	float p1x, float p1y, float p1w,
-	float p2x, float p2y, float p2w,
-	float p3x, float p3y, float p3w,
-	uint32_t c0, uint32_t c1, uint32_t c2, uint32_t c3,
-	uint16_t t0x, uint16_t t0y,
-	uint16_t t1x, uint16_t t1y,
-	uint16_t t2x, uint16_t t2y,
-	uint16_t t3x, uint16_t t3y,
-	uint16_t min_u, uint16_t min_v,
-	uint16_t max_u, uint16_t max_v,
-	uint16_t texpage_x, uint16_t texpage_y,
-	uint16_t clut_x, uint16_t clut_y,
-	uint8_t texture_blend_mode,
-	uint8_t depth_shift,
-	bool dither,
-	int blend_mode,
+   float p0x, float p0y, float p0w,
+   float p1x, float p1y, float p1w,
+   float p2x, float p2y, float p2w,
+   float p3x, float p3y, float p3w,
+   uint32_t c0, uint32_t c1, uint32_t c2, uint32_t c3,
+   uint16_t t0x, uint16_t t0y,
+   uint16_t t1x, uint16_t t1y,
+   uint16_t t2x, uint16_t t2y,
+   uint16_t t3x, uint16_t t3y,
+   uint16_t min_u, uint16_t min_v,
+   uint16_t max_u, uint16_t max_v,
+   uint16_t texpage_x, uint16_t texpage_y,
+   uint16_t clut_x, uint16_t clut_y,
+   uint8_t texture_blend_mode,
+   uint8_t depth_shift,
+   bool dither,
+   int blend_mode,
    uint32_t mask_test,
    uint32_t set_mask)
 {
@@ -3874,40 +4264,40 @@ void rsx_intf_push_quad(
    rsx_dump_quad(vertices, &state);
 #endif
 
-	switch (rsx_type)
-	{
-	case RSX_SOFTWARE:
-		break;
-	case RSX_OPENGL:
+   switch (rsx_type)
+   {
+      case RSX_SOFTWARE:
+         break;
+      case RSX_OPENGL:
 #if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
-      if (static_renderer.state != GlState_Invalid
-            && static_renderer.state_data)
-         rsx_gl_push_quad(p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, p3x, p3y, p3w,
-               c0, c1, c2, c3,
-               t0x, t0y, t1x, t1y, t2x, t2y, t3x, t3y,
-               min_u, min_v, max_u, max_v,
-               texpage_x, texpage_y, clut_x, clut_y,
-               texture_blend_mode,
-               depth_shift,
-               dither,
-               blend_mode, mask_test != 0, set_mask != 0);
+         if (static_renderer.state != GlState_Invalid
+               && static_renderer.state_data)
+            rsx_gl_push_quad(p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, p3x, p3y, p3w,
+                  c0, c1, c2, c3,
+                  t0x, t0y, t1x, t1y, t2x, t2y, t3x, t3y,
+                  min_u, min_v, max_u, max_v,
+                  texpage_x, texpage_y, clut_x, clut_y,
+                  texture_blend_mode,
+                  depth_shift,
+                  dither,
+                  blend_mode, mask_test != 0, set_mask != 0);
 #endif
-		break;
-   case RSX_VULKAN:
+         break;
+      case RSX_VULKAN:
 #if defined(HAVE_VULKAN)
-      if (renderer)
-         rsx_vulkan_push_quad(p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, p3x, p3y, p3w,
-			c0, c1, c2, c3,
-			t0x, t0y, t1x, t1y, t2x, t2y, t3x, t3y,
-			min_u, min_v, max_u, max_v,
-			texpage_x, texpage_y, clut_x, clut_y,
-			texture_blend_mode,
-			depth_shift,
-			dither,
-			blend_mode, mask_test != 0, set_mask != 0);
+         if (renderer)
+            rsx_vulkan_push_quad(p0x, p0y, p0w, p1x, p1y, p1w, p2x, p2y, p2w, p3x, p3y, p3w,
+                  c0, c1, c2, c3,
+                  t0x, t0y, t1x, t1y, t2x, t2y, t3x, t3y,
+                  min_u, min_v, max_u, max_v,
+                  texpage_x, texpage_y, clut_x, clut_y,
+                  texture_blend_mode,
+                  depth_shift,
+                  dither,
+                  blend_mode, mask_test != 0, set_mask != 0);
 #endif
-      break;
-	}
+         break;
+   }
 }
 
 void rsx_intf_push_line(int16_t p0x, int16_t p0y,

@@ -1169,6 +1169,8 @@ enum retro_mod
                                             * i.e. it should be feasible to cycle through options
                                             * without a keyboard.
                                             *
+                                            * First entry should be treated as a default.
+                                            *
                                             * Example entry:
                                             * {
                                             *     "foo_option",
@@ -1246,6 +1248,16 @@ enum retro_mod
                                             * default when calling SET_VARIABLES/SET_CORE_OPTIONS.
                                             */
 
+#define RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER 56
+                                           /* unsigned * --
+                                            *
+                                            * Allows an implementation to ask frontend preferred hardware
+                                            * context to use. Core should use this information to deal
+                                            * with what specific context to request with SET_HW_RENDER.
+                                            *
+                                            * 'data' points to an unsigned variable
+                                            */
+											
 /* VFS functionality */
 
 /* File paths:
@@ -2501,7 +2513,9 @@ struct retro_core_option_display
    bool visible;
 };
 
-/* Maximum number of values permitted for a core option */
+/* Maximum number of values permitted for a core option
+ * NOTE: This may be increased on a core-by-core basis
+ * if required (doing so has no effect on the frontend) */
 #define RETRO_NUM_CORE_OPTION_VALUES_MAX 128
 
 struct retro_core_option_value
