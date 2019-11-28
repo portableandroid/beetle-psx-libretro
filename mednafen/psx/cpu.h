@@ -60,6 +60,9 @@
 */
 
 #include "gte.h"
+#ifdef HAVE_LIGHTREC
+   #include <lightrec.h>
+#endif
 
 #if NOT_LIBRETRO
 namespace MDFN_IEN_PSX
@@ -85,6 +88,10 @@ class PS_CPU
   next_event_ts = next_event_ts_arg;
  }
 
+ static INLINE pscpu_timestamp_t GetEventNT(void) {
+  return next_event_ts;
+ }
+
  pscpu_timestamp_t Run(pscpu_timestamp_t timestamp_in, bool BIOSPrintMode, bool ILHMode);
 
  void Power(void) MDFN_COLD;
@@ -99,39 +106,52 @@ class PS_CPU
  uint32 GetBIU(void);
 
  int StateAction(StateMem *sm, const unsigned load, const bool data_only);
+#ifdef HAVE_LIGHTREC
+ void lightrec_plugin_clear(uint32 addr, uint32 size);
+#endif
 
  private:
 
+#ifdef HAVE_LIGHTREC
+ uint32 GPR[34 + 1];	//Lightrec uses LO = GPR[32] and HI = GPR[33], GPR[34] Used as dummy in load delay simulation(indexing past the end of real GPR)
+
+ #define LO GPR[32]
+ #define HI GPR[33]
+ #define DU 34		//Index of dummy for lds
+#else
  uint32 GPR[32 + 1];	// GPR[32] Used as dummy in load delay simulation(indexing past the end of real GPR)
 
  uint32 LO;
  uint32 HI;
-
+ #define DU 32		//Index of dummy for lds
+#endif
 
  uint32 BACKED_PC;
  uint32 BACKED_new_PC;
 
- uint32 IPCache;
+ static uint32 IPCache;
  uint8 BDBT;
 
- uint8 ReadAbsorb[0x20 + 1];
+ uint8 ReadAbsorb[DU + 1];
  uint8 ReadAbsorbWhich;
  uint8 ReadFudge;
 
- void RecalcIPCache(void);
- bool Halted;
+ static void RecalcIPCache(void);
+ static bool Halted;
 
  uint32 BACKED_LDWhich;
  uint32 BACKED_LDValue;
  uint32 LDAbsorb;
 
- pscpu_timestamp_t next_event_ts;
+ static pscpu_timestamp_t next_event_ts;
  pscpu_timestamp_t gte_ts_done;
  pscpu_timestamp_t muldiv_ts_done;
 
- uint32 BIU;
+ static uint32 BIU;
 
  uint32 addr_mask[8];
+
+ static char cache_buf[64 * 1024];
 
  enum
  {
@@ -148,7 +168,7 @@ class PS_CPU
   CP0REG_PRID = 15		// Product ID
  };
 
- struct
+ static struct CP0
  {
   union
   {
@@ -196,8 +216,6 @@ class PS_CPU
   uint32 ICache_Bulk[2048];
  };
 
-   MultiAccessSizeMem<1024, uint32, false> ScratchRAM;
-
  //PS_GTE GTE;
 
  uintptr_t FastMap[1 << (32 - FAST_MAP_SHIFT)];
@@ -230,6 +248,35 @@ class PS_CPU
  template<typename T> void WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, uint32 value, bool DS24 = false);
 
  uint32 ReadInstruction(pscpu_timestamp_t &timestamp, uint32 address);
+
+#ifdef HAVE_LIGHTREC
+ void print_for_big_ass_debugger(int32 timestamp, uint32 PC);
+ int lightrec_plugin_init();
+ void lightrec_plugin_shutdown();
+ int32 lightrec_plugin_execute(int32 timestamp);
+ static uint32 cop_cfc(lightrec_state*, uint8);
+ static uint32 cop_mfc(lightrec_state*, uint8);
+ static uint32 cop2_cfc(lightrec_state*, uint8);
+ static uint32 cop2_mfc(lightrec_state*, uint8);
+ static void cop_mtc_ctc(struct lightrec_state *state, uint8 reg, uint32 value);
+ static void cop_ctc(lightrec_state*, uint8, uint32);
+ static void cop_mtc(lightrec_state*, uint8, uint32);
+ static void cop2_ctc(lightrec_state*, uint8, uint32);
+ static void cop2_mtc(lightrec_state*, uint8, uint32);
+ static struct lightrec_ops ops;
+ static struct lightrec_mem_map_ops hw_regs_ops;
+ static struct lightrec_mem_map_ops cache_ctrl_ops;
+ static struct lightrec_mem_map lightrec_map[];
+ static void hw_write_byte(struct lightrec_state *state, uint32 mem, uint8 val);
+ static void hw_write_half(struct lightrec_state *state, uint32 mem, uint16 val);
+ static void hw_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint8 hw_read_byte(struct lightrec_state *state, uint32 mem);
+ static uint16 hw_read_half(struct lightrec_state *state, uint32 mem);
+ static uint32 hw_read_word(struct lightrec_state *state, uint32 mem);
+ static void cache_ctrl_write_word(struct lightrec_state *state, uint32 mem, uint32 val);
+ static uint32 cache_ctrl_read_word(struct lightrec_state *state, uint32 mem);
+ static void reset_target_cycle_count(struct lightrec_state *state, pscpu_timestamp_t timestamp);
+#endif
 
  //
  // Mednafen debugger stuff follows:

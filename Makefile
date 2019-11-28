@@ -5,6 +5,7 @@ HAVE_VULKAN = 0
 HAVE_JIT = 0
 HAVE_CHD = 1
 HAVE_CDROM = 0
+HAVE_LIGHTREC = 1
 
 CORE_DIR := .
 HAVE_GRIFFIN = 0
@@ -86,6 +87,10 @@ ifneq (,$(findstring unix,$(platform)))
      LDFLAGS += $(PTHREAD_FLAGS) -lroot
    else
      LDFLAGS += $(PTHREAD_FLAGS) -ldl
+   endif
+   ifeq ($(HAVE_LIGHTREC), 1)
+      LDFLAGS += -lrt
+      FLAGS += -DHAVE_SHM
    endif
    FLAGS   +=
    ifeq ($(HAVE_OPENGL),1)
@@ -483,6 +488,10 @@ else
    
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -lopengl32
+   endif
+
+   ifeq ($(HAVE_LIGHTREC), 1)
+      FLAGS += -DHAVE_WIN_SHM
    endif
 endif
 

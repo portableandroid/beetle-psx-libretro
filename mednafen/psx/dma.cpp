@@ -380,7 +380,7 @@ static INLINE void RunChannel(int32_t timestamp, int32_t clocks, int ch)
                   break;
                }
 
-               header = MainRAM.ReadU32(DMACH[ch].CurAddr & 0x1FFFFC);
+               header = MainRAM->ReadU32(DMACH[ch].CurAddr & 0x1FFFFC);
                DMACH[ch].CurAddr = (DMACH[ch].CurAddr + 4) & 0xFFFFFF;
 
                DMACH[ch].WordCounter = header >> 24;
@@ -433,13 +433,18 @@ static INLINE void RunChannel(int32_t timestamp, int32_t clocks, int ch)
             }
 
             if(CRModeCache & 0x1)
-               vtmp = MainRAM.ReadU32(DMACH[ch].CurAddr & 0x1FFFFC);
+               vtmp = MainRAM->ReadU32(DMACH[ch].CurAddr & 0x1FFFFC);
 
 			//iCB: Pass address of memory for GPU
             ChRW(ch, CRModeCache, DMACH[ch].CurAddr, &vtmp, &voffs);
 
             if(!(CRModeCache & 0x1))
-               MainRAM.WriteU32((DMACH[ch].CurAddr + (voffs << 2)) & 0x1FFFFC, vtmp);
+            {
+               MainRAM->WriteU32((DMACH[ch].CurAddr + (voffs << 2)) & 0x1FFFFC, vtmp);
+#ifdef HAVE_LIGHTREC
+               PSX_CPU->lightrec_plugin_clear((DMACH[ch].CurAddr + (voffs << 2)) & 0x1FFFFC, 1);
+#endif
+            }
          }
 
          if(CRModeCache & 0x2)

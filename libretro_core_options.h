@@ -274,6 +274,19 @@ struct retro_core_option_definition option_defs_us[] = {
       },
       "disabled"
    },
+#if defined(HAVE_LIGHTREC)
+   {
+      BEETLE_OPT(cpu_dynarec),
+      "CPU Dynarec",
+      "Dynamically recompile CPU instructions to native instructions. Much faster than interpreter, but CPU timing is less accurate, and may have bugs.",
+      {
+         { "enabled", NULL },
+         { "disabled",  NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
+#endif
    {
       BEETLE_OPT(cpu_freq_scale),
       "CPU Frequency Scaling (Overclock)",
