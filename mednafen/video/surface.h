@@ -1,7 +1,7 @@
 #ifndef __MDFN_SURFACE_H
 #define __MDFN_SURFACE_H
 
-#ifdef PORTANDROID
+#if defined(PORTANDROID) && !defined(CFG_SUPPORT_LIBRETRO_INF)
 #define RED_SHIFT 0
 #define GREEN_SHIFT 8
 #define BLUE_SHIFT 16

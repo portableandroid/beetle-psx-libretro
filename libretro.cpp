@@ -46,6 +46,12 @@
 #include <windows.h>
 #endif
 
+#ifdef PORTANDROID
+#define _cb_type_lock_
+#include "emu_retro.h"
+char CdromId[10] = "";
+#endif
+
 //Fast Save States exclude string labels from variables in the savestate, and are at least 20% faster.
 extern bool FastSaveStates;
 const int DEFAULT_STATE_SIZE = 16 * 1024 * 1024;
@@ -68,7 +74,11 @@ static unsigned image_offset = 0;
 static unsigned image_crop = 0;
 static bool crop_overscan = false;
 static bool enable_memcard1 = false;
+#ifdef PORTANDROID
+static bool enable_variable_serialization_size = true;
+#else
 static bool enable_variable_serialization_size = false;
+#endif
 static int frame_width = 0;
 static int frame_height = 0;
 static bool gui_inited = false;
@@ -1371,6 +1381,25 @@ static const char *CalcDiscSCEx_BySYSTEMCNF(CDIF *c, unsigned *rr)
             if(!strncasecmp(bootpos, "cdrom:\\", 7))
             {
                bootpos += 7;
+#ifdef PORTANDROID
+                if (CdromId[0] == '\0') {
+                    int i, j;
+                    for (i = 0, j = 0; i < 256; ++i) {
+                        if (bootpos[i] == ';' || j >= sizeof(CdromId) - 1)
+                            break;
+                        if (isalnum(bootpos[i]))
+                            CdromId[j++] = bootpos[i];
+                    }
+
+                    if (CdromId[0] == '\0') {
+                        strcpy(CdromId, "SLUS99999");
+                    }
+
+                    cb_itf.cb_rom_info_set(NULL, CdromId, 0);
+                }
+
+                //LOGD("[%s] CDROM ID: %s", __FUNCTION__, CdromId);
+#endif
                char *tmp;
 
                if((tmp = strchr(bootpos, '_'))) *tmp = 0;
@@ -1952,8 +1981,20 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
       abort();
 
    {
-      const char *biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE,
+#ifdef PORTANDROID
+        const char *biospath = NULL;
+        if(cb_settings.bios_path != NULL && filestream_exists(cb_settings.bios_path)){
+            biospath = cb_settings.bios_path;
+            printf_1("[%s] Import external bios: %s", __FUNCTION__, biospath);
+        }
+        if(biospath == NULL){
+            biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE, 0, MDFN_GetSettingS(biospath_sname).c_str());
+            printf_1("[%s] Import internal bios: %s", __FUNCTION__, biospath);
+        }
+#else
+        const char *biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE,
             0, MDFN_GetSettingS(biospath_sname).c_str());
+#endif
       RFILE *BIOSFile      = filestream_open(biospath,
             RETRO_VFS_FILE_ACCESS_READ,
             RETRO_VFS_FILE_ACCESS_HINT_NONE);
@@ -3492,7 +3533,11 @@ static void check_variables(bool startup)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       uint8_t val = var.value[0] - '0';
+#ifdef PORTANDROID
+      if (var.value[1] != 0) //SeekBar just pass the value without unit
+#else
       if (var.value[1] != 'x')
+#endif
       {
          val  = (var.value[0] - '0') * 10;
          val += var.value[1] - '0';
@@ -4050,7 +4095,12 @@ void retro_run(void)
    /* start of Emulate */
    int32_t timestamp = 0;
 
+#ifdef PORTANDROID
+   espec->skip = cb_context.video_skip;
+   //printf_2("[%s] render_skip = %d ", __FUNCTION__, cb_context.video_skip);
+#else
    espec->skip = false;
+#endif
 
    MDFNMP_ApplyPeriodicCheats();
 
