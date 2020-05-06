@@ -25,6 +25,13 @@
 
 #include "../pgxp/pgxp_main.h"
 
+#ifdef PORTANDROID
+#define DEBUG_LEVEL 2
+#define _cb_type_lock_
+#include "emu_retro.h"
+char CdromId[10] = "";
+#endif
+
 #include <vector>
 #define ISHEXDEC ((codeLine[cursor]>='0') && (codeLine[cursor]<='9')) || ((codeLine[cursor]>='a') && (codeLine[cursor]<='f')) || ((codeLine[cursor]>='A') && (codeLine[cursor]<='F'))
 
@@ -50,7 +57,11 @@ static unsigned image_offset = 0;
 static unsigned image_crop = 0;
 static bool crop_overscan = false;
 static bool enable_memcard1 = false;
+#ifdef PORTANDROID
+static bool enable_variable_serialization_size = true;
+#else
 static bool enable_variable_serialization_size = false;
+#endif
 static int frame_width = 0;
 static int frame_height = 0;
 static bool gui_inited = false;
@@ -1342,6 +1353,23 @@ static const char *CalcDiscSCEx_BySYSTEMCNF(CDIF *c, unsigned *rr)
             if(!strncasecmp(bootpos, "cdrom:\\", 7))
             {
                bootpos += 7;
+#ifdef PORTANDROID
+                if (CdromId[0] == '\0') {
+                    int i, j;
+                    for (i = 0, j = 0; i < 256; ++i) {
+                        if (bootpos[i] == ';' || j >= sizeof(CdromId) - 1)
+                            break;
+                        if (isalnum(bootpos[i]))
+                            CdromId[j++] = bootpos[i];
+                    }
+
+                    if (CdromId[0] == '\0') {
+                        strcpy(CdromId, "SLUS99999");
+                    }
+
+                    cb_itf.cb_rom_info_set(NULL, CdromId, 0);
+                }
+#endif
                char *tmp;
 
                if((tmp = strchr(bootpos, '_'))) *tmp = 0;
@@ -1638,8 +1666,19 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
       abort();
 
    {
+#ifdef PORTANDROID
+      const char *biospath = NULL;
+      if(cb_settings.bios_path != NULL){
+         biospath = cb_settings.bios_path;
+         printf_1("[%s] Import external bios: %s", __FUNCTION__, biospath);
+      } else {
+         biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE, 0, MDFN_GetSettingS(biospath_sname).c_str());
+         printf_1("[%s] Import internal bios: %s", __FUNCTION__, biospath);
+      }
+#else
       const char *biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE,
             0, MDFN_GetSettingS(biospath_sname).c_str());
+#endif
       RFILE *BIOSFile      = filestream_open(biospath,
             RETRO_VFS_FILE_ACCESS_READ,
             RETRO_VFS_FILE_ACCESS_HINT_NONE);
@@ -3212,7 +3251,11 @@ static void check_variables(bool startup)
       {
          uint8_t val = var.value[0] - '0';
 
+#ifdef PORTANDROID
+         if (var.value[1] != 0) //SeekBar just pass the value without unit
+#else
          if (var.value[1] != 'x')
+#endif
             {
                val  = (var.value[0] - '0') * 10;
                val += var.value[1] - '0';
@@ -3681,7 +3724,11 @@ void retro_run(void)
    /* start of Emulate */
    int32_t timestamp = 0;
 
+#ifdef PORTANDROID
+   espec->skip = cb_context.video_skip;
+#else
    espec->skip = false;
+#endif
 
    MDFNMP_ApplyPeriodicCheats();
 
@@ -3764,7 +3811,11 @@ void retro_run(void)
    unsigned height       = spec.DisplayRect.h;
    uint8_t upscale_shift = GPU_get_upscale_shift();
 
+#ifdef PORTANDROID
+   if (rsx_intf_is_type() == RSX_SOFTWARE && !cb_context.video_skip)
+#else
    if (rsx_intf_is_type() == RSX_SOFTWARE)
+#endif
    {
 #ifdef NEED_DEINTERLACER
       if (spec.InterlaceOn)
