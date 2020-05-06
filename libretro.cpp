@@ -47,6 +47,7 @@
 #endif
 
 #ifdef PORTANDROID
+#define DEBUG_LEVEL 2
 #define _cb_type_lock_
 #include "emu_retro.h"
 char CdromId[10] = "";
@@ -1983,11 +1984,10 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    {
 #ifdef PORTANDROID
         const char *biospath = NULL;
-        if(cb_settings.bios_path != NULL && filestream_exists(cb_settings.bios_path)){
+        if(cb_settings.bios_path != NULL){
             biospath = cb_settings.bios_path;
             printf_1("[%s] Import external bios: %s", __FUNCTION__, biospath);
-        }
-        if(biospath == NULL){
+        } else {
             biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE, 0, MDFN_GetSettingS(biospath_sname).c_str());
             printf_1("[%s] Import internal bios: %s", __FUNCTION__, biospath);
         }
@@ -4182,8 +4182,11 @@ void retro_run(void)
    unsigned width        = rects[0];
    unsigned height       = spec.DisplayRect.h;
    uint8_t upscale_shift = GPU_get_upscale_shift();
-
+#ifdef PORTANDROID
+   if (rsx_intf_is_type() == RSX_SOFTWARE && !cb_context.video_skip)
+#else
    if (rsx_intf_is_type() == RSX_SOFTWARE)
+#endif
    {
 #ifdef NEED_DEINTERLACER
       if (spec.InterlaceOn)
