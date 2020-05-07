@@ -60,9 +60,37 @@ public:
 		MDEC_YUV
 	};
 
+	enum class WidthMode
+	{
+		WIDTH_MODE_256 = 0,
+		WIDTH_MODE_320 = 1,
+		WIDTH_MODE_512 = 2,
+		WIDTH_MODE_640 = 3,
+		WIDTH_MODE_368 = 4
+	};
+
+	struct DisplayRect
+	{
+		// Unlike Rect, the x-y coordinates for a DisplayRect can be negative
+		int x = 0;
+		int y = 0;
+		unsigned width = 0;
+		unsigned height = 0;
+
+		DisplayRect() = default;
+		DisplayRect(int x, int y, unsigned width, unsigned height)
+		    : x(x)
+		    , y(y)
+		    , width(width)
+		    , height(height)
+		{
+		}
+	};
+
 	struct RenderState
 	{
-		Rect display_mode;
+		//Rect display_mode;
+		Rect display_fb_rect;
 		TextureWindow texture_window;
 		Rect cached_window_rect;
 		Rect draw_rect;
@@ -73,10 +101,33 @@ public:
 		unsigned texture_offset_x = 0;
 		unsigned texture_offset_y = 0;
 
+		int vert_start = 0x10;
+		int vert_end = 0x100;
+		int horiz_start = 0x200;
+		int horiz_end = 0xC00;
+
+		bool is_pal = false;
+		bool is_480i = false;
+		WidthMode width_mode = WidthMode::WIDTH_MODE_320;
+		bool crop_overscan = false;
+
+		// Experimental horizontal offset feature
+		int offset_cycles = 0;
+
+		int slstart = 0;
+		int slend = 239;
+
+		int slstart_pal = 0;
+		int slend_pal = 287;
+
+		unsigned display_fb_xstart = 0;
+		unsigned display_fb_ystart = 0;
+
 		TextureMode texture_mode = TextureMode::None;
 		SemiTransparentMode semi_transparent = SemiTransparentMode::None;
 		ScanoutMode scanout_mode = ScanoutMode::ABGR1555_555;
 		ScanoutFilter scanout_filter = ScanoutFilter::None;
+		ScanoutFilter scanout_mdec_filter = ScanoutFilter::None;
 		bool dither_native_resolution = false;
 		bool force_mask_bit = false;
 		bool texture_color_modulate = false;
@@ -135,18 +186,68 @@ public:
 	void end_copy(Vulkan::BufferHandle handle);
 
 	void blit_vram(const Rect &dst, const Rect &src);
-	void set_display_mode(const Rect &rect, ScanoutMode mode)
-	{
-		if (rect != render_state.display_mode || render_state.scanout_mode != mode)
-			last_scanout.reset();
 
-		render_state.display_mode = rect;
+	void set_vram_framebuffer_coords(unsigned xstart, unsigned ystart)
+	{
+		last_scanout.reset();
+
+		render_state.display_fb_xstart = xstart;
+		render_state.display_fb_ystart = ystart;
+	}
+
+	void set_horizontal_display_range(int x1, int x2)
+	{
+		render_state.horiz_start = x1;
+		render_state.horiz_end = x2;
+	}
+
+	void set_vertical_display_range(int y1, int y2)
+	{
+		render_state.vert_start = y1;
+		render_state.vert_end = y2;
+	}
+
+	void set_display_mode(ScanoutMode mode, bool is_pal, bool is_480i, WidthMode width_mode)
+	{
+		//if (rect != render_state.display_mode || render_state.scanout_mode != mode)
+		//	last_scanout.reset();
+		last_scanout.reset();
+
+		//render_state.display_mode = rect;
 		render_state.scanout_mode = mode;
+
+		render_state.is_pal = is_pal;
+		render_state.is_480i = is_480i;
+		render_state.width_mode = width_mode;
+	}
+
+	void set_horizontal_overscan_cropping(bool crop_overscan)
+	{
+		render_state.crop_overscan = crop_overscan;
+	}
+
+	void set_horizontal_offset_cycles(int offset_cycles)
+	{
+		render_state.offset_cycles = offset_cycles;
+	}
+
+	void set_visible_scanlines(int slstart, int slend, int slstart_pal, int slend_pal)
+	{
+		// May need bounds checking to reject bad inputs. Currently assume all inputs are valid.
+		render_state.slstart = slstart;
+		render_state.slend = slend;
+		render_state.slstart_pal = slstart_pal;
+		render_state.slend_pal = slend_pal;
 	}
 
 	void set_display_filter(ScanoutFilter filter)
 	{
 		render_state.scanout_filter = filter;
+	}
+
+	void set_mdec_filter(ScanoutFilter mdec_filter)
+	{
+		render_state.scanout_mdec_filter = mdec_filter;
 	}
 
 	void toggle_display(bool enable)
@@ -173,6 +274,7 @@ public:
 	void scanout();
 	Vulkan::BufferHandle scanout_to_buffer(bool draw_area, unsigned &width, unsigned &height);
 	Vulkan::BufferHandle scanout_vram_to_buffer(unsigned &width, unsigned &height);
+	Vulkan::ImageHandle scanout_vram_to_texture(bool scaled = true);
 	Vulkan::ImageHandle scanout_to_texture();
 
 	inline void set_texture_mode(TextureMode mode)
@@ -444,6 +546,9 @@ private:
 
 	Vulkan::ImageHandle last_scanout;
 	Vulkan::ImageHandle reuseable_scanout;
+	DisplayRect compute_display_rect();
+
+	Rect compute_vram_framebuffer_rect();
 
 	void mipmap_framebuffer();
 	Vulkan::BufferHandle quad;

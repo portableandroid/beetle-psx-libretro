@@ -25,6 +25,8 @@ ifeq ($(HAVE_OPENGL), 1)
 
    SOURCES_C += $(LIBRETRO_DIR)/glsm/glsm.c \
                 $(LIBRETRO_DIR)/glsym/rglgen.c
+
+   SOURCES_CXX += $(CORE_DIR)/rsx/rsx_lib_gl.cpp
 endif
 
 INCFLAGS := -I$(CORE_DIR) \
@@ -144,6 +146,28 @@ ifeq ($(NEED_TREMOR), 1)
    FLAGS += -DNEED_TREMOR
 endif
 
+ifeq ($(HAVE_LIGHTREC), 1)
+   FLAGS += -DHAVE_LIGHTREC
+
+   ifeq ($(THREADED_RECOMPILER), 0)
+       FLAGS += -DENABLE_THREADED_COMPILER=0
+   else
+      ifeq ($(DEBUG), 0)
+          FLAGS += -DENABLE_THREADED_COMPILER=1
+      else
+          FLAGS += -DENABLE_THREADED_COMPILER=0
+      endif
+   endif
+
+   ifneq (,$(findstring win,$(platform)))
+       FLAGS += -DLIGHTREC_STATIC=1
+       INCFLAGS += -isystem$(DEPS_DIR)/mman
+   endif
+
+   INCFLAGS += -I$(DEPS_DIR)/lightning/include \
+               -I$(DEPS_DIR)/lightrec
+endif
+
 ifneq ($(HAVE_GRIFFIN), 1)
    SOURCES_CXX += $(CORE_EMU_DIR)/irq.cpp \
                   $(CORE_EMU_DIR)/timer.cpp \
@@ -170,26 +194,27 @@ ifneq ($(HAVE_GRIFFIN), 1)
       SOURCES_CXX += $(CORE_EMU_DIR)/decomp.cpp
    endif
 
-   SOURCES_C += $(CORE_DIR)/libretro_cbs.c
+   SOURCES_C += $(CORE_DIR)/libretro_cbs.c \
+                $(CORE_DIR)/beetle_psx_globals.c
 
    ifeq ($(NEED_TREMOR), 1)
       SOURCES_C += $(sort $(wildcard $(MEDNAFEN_DIR)/tremor/*.c))
    endif
 
    SOURCES_CXX += $(CDROM_DIR)/CDAccess.cpp \
-		  $(CDROM_DIR)/CDAccess_Image.cpp \
-		  $(CDROM_DIR)/CDAccess_CCD.cpp \
-		  $(CDROM_DIR)/CDAccess_PBP.cpp \
-		  $(CDROM_DIR)/audioreader.cpp \
-		  $(CDROM_DIR)/misc.cpp \
-		  $(CDROM_DIR)/cdromif.cpp
+                  $(CDROM_DIR)/CDAccess_Image.cpp \
+                  $(CDROM_DIR)/CDAccess_CCD.cpp \
+                  $(CDROM_DIR)/CDAccess_PBP.cpp \
+                  $(CDROM_DIR)/audioreader.cpp \
+                  $(CDROM_DIR)/misc.cpp \
+                  $(CDROM_DIR)/cdromif.cpp
 
    SOURCES_C +=   $(CDROM_DIR)/CDUtility.c \
-		  $(CDROM_DIR)/galois.c \
-		  $(CDROM_DIR)/l-ec.c \
-		  $(CDROM_DIR)/lec.c \
-		  $(CDROM_DIR)/recover-raw.c \
-		  $(CDROM_DIR)/edc_crc32.c
+                  $(CDROM_DIR)/galois.c \
+                  $(CDROM_DIR)/l-ec.c \
+                  $(CDROM_DIR)/lec.c \
+                  $(CDROM_DIR)/recover-raw.c \
+                  $(CDROM_DIR)/edc_crc32.c
 
    SOURCES_CXX += $(MEDNAFEN_DIR)/error.cpp \
                   $(MEDNAFEN_DIR)/settings.cpp \
@@ -202,9 +227,9 @@ ifneq ($(HAVE_GRIFFIN), 1)
                   $(MEDNAFEN_DIR)/video/Deinterlacer.cpp \
                   $(MEDNAFEN_DIR)/video/surface.cpp \
                   $(CORE_DIR)/libretro.cpp \
-						$(MEDNAFEN_DIR)/mednafen-endian.cpp \
+                  $(MEDNAFEN_DIR)/mednafen-endian.cpp \
                   $(CORE_DIR)/input.cpp \
-						$(CORE_DIR)/rsx/rsx_intf.cpp
+                  $(CORE_DIR)/rsx/rsx_intf.cpp
 
    SOURCES_C +=   $(MEDNAFEN_DIR)/md5.c
 
@@ -219,7 +244,8 @@ ifneq ($(HAVE_GRIFFIN), 1)
                      $(wildcard $(CORE_DIR)/parallel-psx/atlas/*.cpp) \
                      $(wildcard $(CORE_DIR)/parallel-psx/vulkan/*.cpp) \
                      $(wildcard $(CORE_DIR)/parallel-psx/SPIRV-Cross/*.cpp) \
-                     $(CORE_DIR)/parallel-psx/util/timer.cpp
+                     $(CORE_DIR)/parallel-psx/util/timer.cpp \
+                     $(CORE_DIR)/rsx/rsx_lib_vulkan.cpp
 
       SOURCES_C += $(wildcard $(CORE_DIR)/parallel-psx/volk/*.c)
 
@@ -256,15 +282,15 @@ ifneq ($(HAVE_GRIFFIN), 1)
                      $(LIBRETRO_DIR)/hash/rhash.c
 
       ifeq ($(HAVE_CDROM), 1)
-				 CFLAGS += -DHAVE_CDROM
-				 CXXFLAGS += -DHAVE_CDROM
+         CFLAGS    += -DHAVE_CDROM
+         CXXFLAGS  += -DHAVE_CDROM
          SOURCES_C += $(LIBRETRO_DIR)/cdrom/cdrom.c \
-         							$(LIBRETRO_DIR)/vfs/vfs_implementation_cdrom.c
+                      $(LIBRETRO_DIR)/vfs/vfs_implementation_cdrom.c
 
          ifeq ($(CDROM_DEBUG), 1)
-				    CFLAGS += -DCDROM_DEBUG
-				    CXXFLAGS += -DCDROM_DEBUG
-				 endif
+            CFLAGS += -DCDROM_DEBUG
+            CXXFLAGS += -DCDROM_DEBUG
+         endif
       endif
 
       ifeq ($(NEED_THREADING), 1)
@@ -338,3 +364,33 @@ ifeq ($(HAVE_CHD), 1)
 
    SOURCES_CXX += $(CDROM_DIR)/CDAccess_CHD.cpp
 endif ## ifeq ($(HAVE_CHD), 1)
+
+ifeq ($(HAVE_LIGHTREC), 1)
+   SOURCES_C +=   $(DEPS_DIR)/lightning/lib/jit_disasm.c \
+                  $(DEPS_DIR)/lightning/lib/jit_memory.c \
+                  $(DEPS_DIR)/lightning/lib/jit_names.c \
+                  $(DEPS_DIR)/lightning/lib/jit_note.c \
+                  $(DEPS_DIR)/lightning/lib/jit_print.c \
+                  $(DEPS_DIR)/lightning/lib/jit_size.c \
+                  $(DEPS_DIR)/lightning/lib/lightning.c \
+                  $(DEPS_DIR)/lightrec/blockcache.c \
+                  $(DEPS_DIR)/lightrec/disassembler.c \
+                  $(DEPS_DIR)/lightrec/emitter.c \
+                  $(DEPS_DIR)/lightrec/interpreter.c \
+                  $(DEPS_DIR)/lightrec/lightrec.c \
+                  $(DEPS_DIR)/lightrec/memmanager.c \
+                  $(DEPS_DIR)/lightrec/optimizer.c \
+                  $(DEPS_DIR)/lightrec/reaper.c \
+                  $(DEPS_DIR)/lightrec/regcache.c
+
+   ifeq ($(THREADED_RECOMPILER), 1)
+      ifeq ($(DEBUG), 0)
+          SOURCES_C +=   $(DEPS_DIR)/lightrec/recompiler.c
+      endif
+   endif
+
+   ifneq (,$(findstring win,$(platform)))
+       SOURCES_C +=   $(DEPS_DIR)/mman/sys/mman.c
+   endif
+
+endif ##ifeq ($(HAVE_LIGHTREC), 1)

@@ -83,7 +83,8 @@ void PSX_SetEventNT(const int type, const int32_t next_timestamp);
 
 void PSX_SetDMACycleSteal(unsigned stealage);
 
-void PSX_GPULineHook(const int32_t timestamp, const int32_t line_timestamp, bool vsync, uint32_t *pixels, const MDFN_PixelFormat* const format, const unsigned width, const unsigned pix_clock_offset, const unsigned pix_clock, const unsigned pix_clock_divide);
+// PSX_GPULineHook modified to take surface pitch (in pixels) and upscale factor for software renderer internal upscaling
+void PSX_GPULineHook(const int32_t timestamp, const int32_t line_timestamp, bool vsync, uint32_t *pixels, const MDFN_PixelFormat* const format, const unsigned width, const unsigned pix_clock_offset, const unsigned pix_clock, const unsigned pix_clock_divider, const unsigned surf_pitchinpix, const unsigned upscale_factor);
 
 uint32_t PSX_GetRandU32(uint32_t mina, uint32_t maxa);
 
@@ -100,7 +101,14 @@ class PS_SPU;
 extern PS_CPU *PSX_CPU;
 extern PS_CDC *PSX_CDC;
 extern PS_SPU *PSX_SPU;
-extern MultiAccessSizeMem<2048 * 1024, uint32_t, false> MainRAM;
+extern MultiAccessSizeMem<512 * 1024, uint32, false> *BIOSROM;
+extern MultiAccessSizeMem<2048 * 1024, uint32_t, false> *MainRAM;
+extern MultiAccessSizeMem<1024, uint32_t, false> *ScratchRAM;
+
+#ifdef HAVE_LIGHTREC
+enum DYNAREC {DYNAREC_DISABLED, DYNAREC_EXECUTE, DYNAREC_EXECUTE_ONE, DYNAREC_RUN_INTERPRETER};
+extern enum DYNAREC psx_dynarec;
+#endif
 
 #define OVERCLOCK_SHIFT 8
 extern int32_t psx_overclock_factor;

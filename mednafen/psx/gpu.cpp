@@ -56,6 +56,8 @@
 
 */
 
+extern bool fast_pal;
+
 /*
    November 29, 2012 notes:
 
@@ -67,6 +69,8 @@
    Vertical start and end can be changed during active display, with effect(though it needs to be vs0->ve0->vs1->ve1->..., vs0->vs1->ve0 doesn't apparently do anything
    different from vs0->ve0.
    */
+extern int32 EventCycles;
+
 static const int8 dither_table[4][4] =
 {
    { -4,  0, -3,  1 },
@@ -326,6 +330,12 @@ static void Command_DrawMode(PS_GPU* g, const uint32 *cb)
    g->dtd =        (cmdw >> 9) & 1;
    g->dfe =        (cmdw >> 10) & 1;
 
+   if (g->dfe)
+   {
+      GPU.display_possibly_dirty = true;
+      //printf("Display possibly dirty this frame\n");
+   }
+
    //printf("*******************DFE: %d -- scanline=%d\n", dfe, scanline);
 }
 
@@ -535,22 +545,33 @@ static INLINE bool CalcFIFOReadyBit(void)
    return(true);
 }
 
-static void UpdateDisplayMode(void)
+static void RSX_UpdateDisplayMode(void)
 {
    bool depth_24bpp = !!(GPU.DisplayMode & 0x10);
 
-   uint16_t yres = GPU.VertEnd - GPU.VertStart;
+   //uint16_t yres = GPU.VertEnd - GPU.VertStart;
+
+   bool is_pal_mode = false;
+   if((GPU.DisplayMode & DISP_PAL) == DISP_PAL)
+      is_pal_mode = true;
 
    // Both 2nd bit and 5th bit have to be enabled to use interlacing properly.
+   bool is_480i_mode = false;
    if((GPU.DisplayMode & (DISP_INTERLACED | DISP_VERT480)) == (DISP_INTERLACED | DISP_VERT480))
-      yres *= 2;
+   {
+      //yres *= 2;
+      is_480i_mode = true;
+   }
 
-   unsigned pixelclock_divider;
+   //unsigned pixelclock_divider;
+
+   enum width_modes curr_width_mode;
 
    if ((GPU.DisplayMode >> 6) & 1)
    {
       // HRes ~ 368pixels
-      pixelclock_divider = 7;
+      //pixelclock_divider = 7;
+      curr_width_mode = WIDTH_MODE_368;
    }
    else
    {
@@ -558,23 +579,28 @@ static void UpdateDisplayMode(void)
       {
          case 0:
             // Hres ~ 256pixels
-            pixelclock_divider = 10;
+            //pixelclock_divider = 10;
+            curr_width_mode = WIDTH_MODE_256;
             break;
          case 1:
             // Hres ~ 320pixels
-            pixelclock_divider = 8;
+            //pixelclock_divider = 8;
+            curr_width_mode = WIDTH_MODE_320;
             break;
          case 2:
             // Hres ~ 512pixels
-            pixelclock_divider = 5;
+            //pixelclock_divider = 5;
+            curr_width_mode = WIDTH_MODE_512;
             break;
          default:
             // Hres ~ 640pixels
-            pixelclock_divider = 4;
+            //pixelclock_divider = 4;
+            curr_width_mode = WIDTH_MODE_640;
             break;
       }
    }
 
+#if 0
    // First we get the horizontal range in number of pixel clock period
    uint16_t xres = (GPU.HorizEnd - GPU.HorizStart);
 
@@ -583,12 +609,13 @@ static void UpdateDisplayMode(void)
 
    // Then the rounding formula straight outta No$
    xres = (xres + 2) & ~3;
+#endif
 
    rsx_intf_set_display_mode(
-         GPU.DisplayFB_XStart,
-         GPU.DisplayFB_YStart,
-         xres, yres,
-         depth_24bpp);
+         depth_24bpp,
+         is_pal_mode, 
+         is_480i_mode,
+         curr_width_mode);
 }
 
 /* Forward decls */
@@ -655,6 +682,7 @@ void GPU_Init(bool pal_clock_and_tv,
    GPU.LineVisFirst = sls;
    GPU.LineVisLast = sle;
 
+   GPU.display_possibly_dirty = false;
    GPU.display_change_count = 0;
 
    GPU.upscale_shift = upscale_shift;
@@ -1039,7 +1067,8 @@ static void ProcessFIFO(uint32_t in_count)
 
    for (i = 0; i < command_len; i++)
    {
-      PGXP_WriteCB(PGXP_ReadFIFO(GPU_BlitterFIFO.read_pos), i);
+      if(PGXP_enabled())
+         PGXP_WriteCB(PGXP_ReadFIFO(GPU_BlitterFIFO.read_pos), i);
       CB[i] = GPU_BlitterFIFO.Read();
    }
 
@@ -1080,7 +1109,8 @@ static INLINE void GPU_WriteCB(uint32_t InData, uint32_t addr)
       return;
    }
 
-   PGXP_WriteFIFO(ReadMem(addr), GPU_BlitterFIFO.write_pos);
+   if(PGXP_enabled())
+      PGXP_WriteFIFO(ReadMem(addr), GPU_BlitterFIFO.write_pos);
    GPU_BlitterFIFO.Write(InData);
 
    if(GPU_BlitterFIFO.in_count && GPU.InCmd != INCMD_FBREAD)
@@ -1110,9 +1140,13 @@ void GPU_Write(const int32_t timestamp, uint32_t A, uint32_t V)
          case 0x00:  // Reset GPU
             //printf("\n\n************ Soft Reset %u ********* \n\n", scanline);
             GPU_SoftReset();
-             rsx_intf_set_draw_area(GPU.ClipX0, GPU.ClipY0,
-                                    GPU.ClipX1, GPU.ClipY1);
-             UpdateDisplayMode();
+            rsx_intf_set_draw_area(GPU.ClipX0, GPU.ClipY0,
+                                   GPU.ClipX1, GPU.ClipY1);
+            rsx_intf_toggle_display(GPU.DisplayOff); // `true` set by GPU_SoftReset()
+            rsx_intf_set_vram_framebuffer_coords(GPU.DisplayFB_XStart, GPU.DisplayFB_YStart); // (0, 0) set by GPU_SoftReset()
+            rsx_intf_set_horizontal_display_range(GPU.HorizStart, GPU.HorizEnd); // 0x200, 0xC00 set by GPU_SoftReset()
+            rsx_intf_set_vertical_display_range(GPU.VertStart, GPU.VertEnd); // 0x10, 0x100 set by GPU_SoftReset()
+            RSX_UpdateDisplayMode();
             break;
 
          case 0x01:  // Reset command buffer
@@ -1140,22 +1174,25 @@ void GPU_Write(const int32_t timestamp, uint32_t A, uint32_t V)
             GPU.DisplayFB_XStart = V & 0x3FE; // Lower bit is apparently ignored.
             GPU.DisplayFB_YStart = (V >> 10) & 0x1FF;
             GPU.display_change_count++;
+            rsx_intf_set_vram_framebuffer_coords(GPU.DisplayFB_XStart, GPU.DisplayFB_YStart);
             break;
 
          case 0x06:  // Horizontal display range
             GPU.HorizStart = V & 0xFFF;
             GPU.HorizEnd = (V >> 12) & 0xFFF;
+            rsx_intf_set_horizontal_display_range(GPU.HorizStart, GPU.HorizEnd);
             break;
 
          case 0x07:
             GPU.VertStart = V & 0x3FF;
             GPU.VertEnd = (V >> 10) & 0x3FF;
+            rsx_intf_set_vertical_display_range(GPU.VertStart, GPU.VertEnd);
             break;
 
          case 0x08:
             //printf("\n\nDISPLAYMODE SET: 0x%02x, %u *************************\n\n\n", V & 0xFF, scanline);
             GPU.DisplayMode = V & 0xFF;
-            UpdateDisplayMode();
+            RSX_UpdateDisplayMode();
             break;
 
          case 0x09:
@@ -1384,8 +1421,8 @@ int32_t GPU_Update(const int32_t sys_timestamp)
 
    GPU.DrawTimeAvail += sys_clocks << (1 + psx_gpu_overclock_shift);
 
-   if(GPU.DrawTimeAvail > (256 << psx_gpu_overclock_shift))
-      GPU.DrawTimeAvail = (256 << psx_gpu_overclock_shift);
+   if(GPU.DrawTimeAvail > (2*EventCycles << psx_gpu_overclock_shift))
+      GPU.DrawTimeAvail = (2*EventCycles << psx_gpu_overclock_shift);
 
    if(GPU_BlitterFIFO.in_count && GPU.InCmd != INCMD_FBREAD)
       ProcessFIFO(GPU_BlitterFIFO.in_count);
@@ -1429,7 +1466,11 @@ int32_t GPU_Update(const int32_t sys_timestamp)
          if(GPU.LinePhase)
          {
             TIMER_SetHRetrace(true);
-            GPU.LineClockCounter = 200;
+            if((GPU.DisplayMode & DISP_PAL) && fast_pal) {
+               GPU.LineClockCounter = (200 * 50) / 59.94;
+            } else {
+               GPU.LineClockCounter = 200;
+            }
             TIMER_ClockHRetrace();
          }
          else
@@ -1442,7 +1483,13 @@ int32_t GPU_Update(const int32_t sys_timestamp)
             TIMER_SetHRetrace(false);
 
             if(GPU.DisplayMode & DISP_PAL)
-               GPU.LineClockCounter = 3405 - 200;
+            {
+               if (fast_pal) {
+                  GPU.LineClockCounter = ((3405 - 200) * 50) / 59.94;
+               } else {
+                  GPU.LineClockCounter = 3405 - 200;
+               }
+            }
             else
                GPU.LineClockCounter = 3412 + GPU.PhaseChange - 200;
 
@@ -1699,6 +1746,9 @@ int32_t GPU_Update(const int32_t sys_timestamp)
                      for(x = udx_end; x < udmw; x++)
                         dest[x] = 0;
                   }
+
+                  //reset dest back to i=0 for PSX_GPULineHook call
+                  dest = GPU.surface->pixels + ((dest_line << GPU.upscale_shift) * GPU.surface->pitch32);
                }
 
                //if(GPU.scanline == 64)
@@ -1708,16 +1758,30 @@ int32_t GPU_Update(const int32_t sys_timestamp)
                pix_clock_offset = (488 - 146) / DotClockRatios[dmc];
                pix_clock = (GPU.HardwarePALType ? 53203425 : 53693182) / DotClockRatios[dmc];
                pix_clock_div = DotClockRatios[dmc];
+
+               PSX_GPULineHook(sys_timestamp,
+                               sys_timestamp - ((uint64)gpu_clocks * 65536) / GPU.GPUClockRatio,
+                               GPU.scanline == 0,
+                               dest,
+                               &GPU.surface->format,
+                               dmw_width,
+                               pix_clock_offset,
+                               pix_clock,
+                               pix_clock_div,
+                               GPU.surface->pitch32,
+                               (1 << GPU.upscale_shift));
             }
-            // XXX fixme when upscaling is active
-            PSX_GPULineHook(sys_timestamp,
-                  sys_timestamp - ((uint64)gpu_clocks * 65536) / GPU.GPUClockRatio, GPU.scanline == 0,
-                  dest,
-                  &GPU.surface->format,
-                  dmw_width,
-                  pix_clock_offset,
-                  pix_clock,
-                  pix_clock_div);
+            else
+            {
+               PSX_GPULineHook(sys_timestamp,
+                               sys_timestamp - ((uint64)gpu_clocks * 65536) / GPU.GPUClockRatio,
+                               GPU.scanline == 0,
+                               NULL,
+                               &GPU.surface->format,
+                               0, 0, 0, 0,
+                               GPU.surface->pitch32,
+                               (1 << GPU.upscale_shift));
+            }
 
             if(!GPU.InVBlank)
                GPU.DisplayFB_CurYOffset = (GPU.DisplayFB_CurYOffset + 1) & 0x1FF;
@@ -1741,7 +1805,7 @@ TheEnd:
    next_dt = (((int64)next_dt << 16) - GPU.GPUClockCounter + GPU.GPUClockRatio - 1) / GPU.GPUClockRatio;
 
    next_dt = std::max<int32>(1, next_dt);
-   next_dt = std::min<int32>(128, next_dt);
+   next_dt = std::min<int32>(EventCycles, next_dt);
 
    //printf("%d\n", next_dt);
 
@@ -1854,7 +1918,11 @@ void GPU_RestoreStateP3(void)
                         1024, 512,
                         GPU.vram, false, false);
 
-   UpdateDisplayMode();
+   rsx_intf_set_vram_framebuffer_coords(GPU.DisplayFB_XStart, GPU.DisplayFB_YStart);
+   rsx_intf_set_horizontal_display_range(GPU.HorizStart, GPU.HorizEnd);
+   rsx_intf_set_vertical_display_range(GPU.VertStart, GPU.VertEnd);
+
+   RSX_UpdateDisplayMode();
 }
 
 int GPU_StateAction(StateMem *sm, int load, int data_only)
@@ -1992,6 +2060,16 @@ int GPU_StateAction(StateMem *sm, int load, int data_only)
    return(ret);
 }
 
+bool GPU_get_display_possibly_dirty(void)
+{
+   return GPU.display_possibly_dirty;
+}
+
+void GPU_set_display_possibly_dirty(bool dirty)
+{
+   GPU.display_possibly_dirty = dirty;
+}
+
 void GPU_set_display_change_count(unsigned a)
 {
    GPU.display_change_count = a;
@@ -2061,4 +2139,11 @@ void texel_put(uint32 x, uint32 y, uint16 v)
 int32_t GPU_GetScanlineNum(void)
 {
    return GPU.scanline;
+}
+
+/* Beetle PSX addition, allows runtime configuration of visible scanlines in software renderer */
+void GPU_set_visible_scanlines(int sls, int sle)
+{
+   GPU.LineVisFirst = sls;
+   GPU.LineVisLast = sle;
 }
