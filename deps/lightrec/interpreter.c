@@ -218,6 +218,8 @@ static u32 int_delay_slot(struct interpreter *inter, u32 pc, bool branch)
 			branch_taken = is_branch_taken(reg_cache, op_next);
 			pr_debug("Target of impossible branch is a branch, "
 				 "%staken.\n", branch_taken ? "" : "not ");
+			inter->cycles += lightrec_cycles_of_opcode(op_next);
+			old_rs = reg_cache[op_next.r.rs];
 		} else {
 			new_op.c = op_next;
 			new_op.flags = 0;
@@ -248,16 +250,24 @@ static u32 int_delay_slot(struct interpreter *inter, u32 pc, bool branch)
 		new_rt = reg_cache[op->r.rt];
 
 	/* Execute delay slot opcode */
-	if (branch_at_addr)
-		ds_next_pc = int_branch(&inter2, pc, op_next, branch_taken);
-	else
-		ds_next_pc = (*int_standard[inter2.op->i.op])(&inter2);
+	ds_next_pc = (*int_standard[inter2.op->i.op])(&inter2);
+
+	if (branch_at_addr) {
+		if (op_next.i.op == OP_SPECIAL)
+			/* TODO: Handle JALR setting $ra */
+			ds_next_pc = old_rs;
+		else if (op_next.i.op == OP_J || op_next.i.op == OP_JAL)
+			/* TODO: Handle JAL setting $ra */
+			ds_next_pc = (pc & 0xf0000000) | (op_next.j.imm << 2);
+		else
+			ds_next_pc = pc + 4 + ((s16)op_next.i.imm << 2);
+	}
 
 	if (branch_at_addr && !branch_taken) {
 		/* If the branch at the target of the branch opcode is not
 		 * taken, we jump to its delay slot */
 		next_pc = pc + sizeof(u32);
-	} else if (!branch && branch_in_ds) {
+	} else if (branch_at_addr || (!branch && branch_in_ds)) {
 		next_pc = ds_next_pc;
 	}
 
@@ -475,7 +485,8 @@ static u32 int_ctc(struct interpreter *inter)
 	/* If we have a MTC0 or CTC0 to CP0 register 12 (Status) or 13 (Cause),
 	 * return early so that the emulator will be able to check software
 	 * interrupt status. */
-	if (op->i.op == OP_CP0 && (op->r.rd == 12 || op->r.rd == 13))
+	if (!(inter->op->flags & LIGHTREC_NO_DS) &&
+	    op->i.op == OP_CP0 && (op->r.rd == 12 || op->r.rd == 13))
 		return inter->block->pc + (op->offset + 1) * sizeof(u32);
 	else
 		return jump_next(inter);
