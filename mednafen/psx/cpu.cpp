@@ -42,7 +42,7 @@ int pgxpMode = PGXP_GetModes();
 enum DYNAREC prev_dynarec;
 bool prev_invalidate;
 extern bool psx_dynarec_invalidate;
-extern bool psx_mmap;
+extern uint8 psx_mmap;
 static struct lightrec_state *lightrec_state;
 #endif
 
@@ -3350,7 +3350,7 @@ void PS_CPU::pgxp_nonhw_write_byte(struct lightrec_state *state,
 	*(u8 *)host = val;
 	PGXP_CPU_SB(opcode, val, mem);
 
-	if (psx_dynarec_invalidate)
+	if (!psx_dynarec_invalidate)
 		lightrec_invalidate(state, mem, 1);
 }
 
@@ -3384,7 +3384,7 @@ void PS_CPU::pgxp_nonhw_write_half(struct lightrec_state *state,
 	*(u16 *)host = HTOLE16(val);
 	PGXP_CPU_SH(opcode, val, mem);
 
-	if (psx_dynarec_invalidate)
+	if (!psx_dynarec_invalidate)
 		lightrec_invalidate(state, mem, 2);
 }
 
@@ -3434,7 +3434,7 @@ void PS_CPU::pgxp_nonhw_write_word(struct lightrec_state *state,
 			break;
 	}
 
-	if (psx_dynarec_invalidate)
+	if (!psx_dynarec_invalidate)
 		lightrec_invalidate(state, mem, 4);
 }
 
@@ -3829,13 +3829,11 @@ int PS_CPU::lightrec_plugin_init()
 
 	lightrec_map[PSX_MAP_KERNEL_USER_RAM].address = psxM;
 
-#if defined(HAVE_SHM) || defined(HAVE_WIN_SHM) || defined(HAVE_ASHMEM)
-	if(psx_mmap){
+	if(psx_mmap == 4){
 		lightrec_map[PSX_MAP_MIRROR1].address = psxM + 0x200000;
 		lightrec_map[PSX_MAP_MIRROR2].address = psxM + 0x400000;
 		lightrec_map[PSX_MAP_MIRROR3].address = psxM + 0x600000;
 	}
-#endif
 
 	lightrec_map[PSX_MAP_BIOS].address = psxR;
 	lightrec_map[PSX_MAP_SCRATCH_PAD].address = psxH;
