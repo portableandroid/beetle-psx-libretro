@@ -5,11 +5,38 @@ precision highp int;
 #include "common.h"
 #include "primitive.h"
 
+layout(set = 0, binding = 4) uniform sampler2D uHighResTexture;
+layout(push_constant, std430) uniform Push
+{
+	ivec4 hd_texture_vram_rect; // The area of vram this hd texture covers
+	ivec4 hd_texture_texel_rect; // The area of this hd texture's own texels that may currently be used
+} push;
+#ifdef TEXTURED
+#include "hdtextures.h"
+#endif
+
 void main()
 {
 	float opacity = 1.0;
 #ifdef TEXTURED
-	vec4 NNColor = sample_vram_atlas(clamp_coord(vUV));
+	vec4 NNColor;
+
+	bool fastpath = (vParam.z & 0x100) != 0;
+	bool hd_enabled = !fastpath && (vParam.z & 0x200) == 0;
+	bool cache_hit = (vParam.z & 0x400) != 0;
+
+	vec4 hdColor;
+	if (fastpath) {
+		NNColor = sample_hd_fast(vUV);
+	} else if (hd_enabled && sample_hd_texture_nearest_hack(vUV, hdColor)) {
+		NNColor = hdColor;
+	} else {
+		NNColor = sample_vram_atlas(clamp_coord(vUV));
+	}
+
+#if defined(OPAQUE) && defined(SEMI_TRANS) && defined(SEMI_TRANS_OPAQUE) 
+#error "Invalid defines."
+#endif
 
 	// Even for opaque draw calls, this pixel is transparent.
 	// Sample in NN space since we need to do an exact test against 0.0.
@@ -18,12 +45,6 @@ void main()
 	// In this pass, only accept opaque pixels.
 	if (all(equal(NNColor, vec4(0.0))) || NNColor.a > 0.5)
 		discard;
-#elif defined(OPAQUE) || defined(SEMI_TRANS)
-	if (all(equal(NNColor, vec4(0.0))))
-		discard;
-
-#else
-#error "Invalid defines."
 #endif
 
 #ifdef SEMI_TRANS
@@ -47,6 +68,22 @@ void main()
 #elif defined(FILTER_3POINT)
 	color = sample_vram_3point(opacity);
 #endif
+
+#if defined(OPAQUE) || defined(SEMI_TRANS)
+	if (color.a == 0.0 && all(equal(vec4(NNColor), vec4(0.0))))
+		discard;
+#endif
+
+	// hd texture filtering
+	if (hd_enabled) {
+		bool valid = true;
+		vec4 hd_color = sample_hd_texture_trilinear(vUV, valid);
+		if (valid) {
+			color = hd_color;
+			opacity = hd_color.a;
+		}
+	}
+
 	if (opacity < 0.5)
 		discard;
 

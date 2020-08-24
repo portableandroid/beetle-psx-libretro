@@ -20,6 +20,9 @@
 #include "libretro_options.h"
 #include "input.h"
 
+#include "parallel-psx/custom-textures/dbg_input_callback.h"
+retro_input_state_t dbg_input_state_cb = 0;
+
 #include "mednafen/mednafen-endian.h"
 #include "mednafen/mednafen-types.h"
 #include "mednafen/psx/psx.h"
@@ -89,6 +92,12 @@ static bool gui_show = false;
 static char bios_path[4096];
 static bool firmware_found = false;
 
+// Switchable memory cards
+static int memcard_left_index = 0;
+static int memcard_left_index_old;
+static int memcard_right_index = 1;
+static int memcard_right_index_old;
+
 unsigned cd_2x_speedup = 1;
 bool cd_async = false;
 bool cd_warned_slow = false;
@@ -136,7 +145,7 @@ unsigned int psx_pgxp_texture_correction;
 
 char retro_save_directory[4096];
 char retro_base_directory[4096];
-static char retro_cd_base_directory[4096];
+char retro_cd_base_directory[4096];
 static char retro_cd_path[4096];
 char retro_cd_base_name[4096];
 #ifdef _WIN32
@@ -158,7 +167,7 @@ static bool firmware_is_present(unsigned region)
    const char *bios_name_list[list_size];
    const char *bios_sha1 = NULL;
 
-   log_cb(RETRO_LOG_INFO, "Checking if required firmware is present.\n");
+   log_cb(RETRO_LOG_INFO, "Checking if required firmware is present...\n");
 
    /* SHA1 and alternate BIOS names sourced from
    https://github.com/mamedev/mame/blob/master/src/mame/drivers/psx.cpp */
@@ -2049,7 +2058,12 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    {
       char ext[64];
       const char *memcard = NULL;
-      snprintf(ext, sizeof(ext), "%d.mcr", i);
+      if (i == 0)
+         snprintf(ext, sizeof(ext), "%d.mcr", memcard_left_index);
+      else if (i == 1)
+         snprintf(ext, sizeof(ext), "%d.mcr", memcard_right_index);
+      else
+         snprintf(ext, sizeof(ext), "%d.mcr", i);
       memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
       PSX_FIO->LoadMemcard(i, memcard);
    }
@@ -2076,9 +2090,9 @@ static bool LoadEXE(const uint8_t *data, const uint32_t size, bool ignore_pcsp =
    uint32 TextSize  = MDFN_de32lsb<false>(&data[0x1C]);
 
    if(ignore_pcsp)
-      log_cb(RETRO_LOG_INFO, "TextStart=0x%08x\nTextSize=0x%08x\n", TextStart, TextSize);
+      log_cb(RETRO_LOG_DEBUG, "TextStart=0x%08x\nTextSize=0x%08x\n", TextStart, TextSize);
    else
-      log_cb(RETRO_LOG_INFO, "PC=0x%08x\nSP=0x%08x\nTextStart=0x%08x\nTextSize=0x%08x\n", PC, SP, TextStart, TextSize);
+      log_cb(RETRO_LOG_DEBUG, "PC=0x%08x\nSP=0x%08x\nTextStart=0x%08x\nTextSize=0x%08x\n", PC, SP, TextStart, TextSize);
 
    TextStart &= 0x1FFFFF;
 
@@ -2366,7 +2380,12 @@ static void CloseGame(void)
          {
             char ext[64];
             const char *memcard = NULL;
-            snprintf(ext, sizeof(ext), "%d.mcr", i);
+            if (i == 0)
+               snprintf(ext, sizeof(ext), "%d.mcr", memcard_left_index);
+            else if (i == 1)
+               snprintf(ext, sizeof(ext), "%d.mcr", memcard_right_index);
+            else
+               snprintf(ext, sizeof(ext), "%d.mcr", i);
             memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
             PSX_FIO->SaveMemcard(i, memcard);
          }
@@ -2438,7 +2457,7 @@ static void CDSelect(void)
  }
 }
 
-int StateAction(StateMem *sm, int load, int data_only)
+extern "C" int StateAction(StateMem *sm, int load, int data_only)
 {
    SFORMAT StateRegs[] =
    {
@@ -2931,7 +2950,7 @@ static void mednafen_update_md5_checksum(CDIF *iface)
    memcpy(MDFNGameInfo->MD5, LayoutMD5, 16);
 
    char *md5 = mednafen_md5_asciistr(MDFNGameInfo->MD5);
-   log_cb(RETRO_LOG_INFO, "[Mednafen]: Updated md5 checksum: %s.\n", md5);
+   log_cb(RETRO_LOG_DEBUG, "[Mednafen]: Updated md5 checksum: %s.\n", md5);
 }
 
 // Untested ...
@@ -3805,6 +3824,20 @@ static void check_variables(bool startup)
    }
    else
       cd_2x_speedup = 1;
+
+   var.key = BEETLE_OPT(memcard_left_index);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      memcard_left_index_old = memcard_left_index;
+      memcard_left_index     = atoi(var.value);
+   }
+
+   var.key = BEETLE_OPT(memcard_right_index);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      memcard_right_index_old = memcard_right_index;
+      memcard_right_index     = atoi(var.value);
+   }
 }
 
 #ifdef NEED_CD
@@ -4364,6 +4397,64 @@ void retro_run(void)
                                 MDFN_GetSettingI(content_is_pal ? "psx.slendp" : "psx.slend"));
 
       PGXP_SetModes(psx_pgxp_mode | psx_pgxp_vertex_caching | psx_pgxp_texture_correction);
+
+      // Reload memory cards if they were changed
+      if (use_mednafen_memcard0_method &&
+          memcard_left_index_old != memcard_left_index)
+      {
+         MDFN_DispMessage(0, RETRO_LOG_INFO,
+                          RETRO_MESSAGE_TARGET_OSD, RETRO_MESSAGE_TYPE_NOTIFICATION_ALT,
+                          "changing from memory card %d to memory card %d in left slot",
+                          memcard_left_index_old, memcard_left_index);
+
+         try
+         {
+            char ext[64];
+            const char *memcard = NULL;
+
+            // Save contents of left memory card to previously selected index
+            snprintf(ext, sizeof(ext), "%d.mcr", memcard_left_index_old);
+            memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
+            PSX_FIO->SaveMemcard(0, memcard, true);
+
+            // Load contents of currently selected index to left memory card
+            snprintf(ext, sizeof(ext), "%d.mcr", memcard_left_index);
+            memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
+            PSX_FIO->LoadMemcard(0, memcard, true);
+         }
+         catch (std::exception &e)
+         {
+            log_cb(RETRO_LOG_ERROR, "%s\n", e.what());
+         }
+      }
+
+      if (memcard_right_index_old != memcard_right_index)
+      {
+         MDFN_DispMessage(0, RETRO_LOG_INFO,
+                          RETRO_MESSAGE_TARGET_OSD, RETRO_MESSAGE_TYPE_NOTIFICATION_ALT,
+                          "changing from memory card %d to memory card %d in right slot",
+                          memcard_right_index_old, memcard_right_index);
+
+         try
+         {
+            char ext[64];
+            const char *memcard = NULL;
+
+            // Save contents of right memory card to previously selected index
+            snprintf(ext, sizeof(ext), "%d.mcr", memcard_right_index_old);
+            memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
+            PSX_FIO->SaveMemcard(1, memcard, true);
+
+            // Load contents of currently selected index to right memory card
+            snprintf(ext, sizeof(ext), "%d.mcr", memcard_right_index);
+            memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
+            PSX_FIO->LoadMemcard(1, memcard, true);
+         }
+         catch (std::exception &e)
+         {
+            log_cb(RETRO_LOG_ERROR, "%s\n", e.what());
+         }
+      }
    }
 
    /* We only start counting after the first frame we encounter. This
@@ -4499,7 +4590,9 @@ void retro_run(void)
             char ext[64];
             const char *memcard = NULL;
 
+#ifndef NDEBUG
             log_cb(RETRO_LOG_INFO, "Saving memcard %d...\n", i);
+#endif
 
             if (i == 0 && !use_mednafen_memcard0_method)
             {
@@ -4509,7 +4602,11 @@ void retro_run(void)
                continue;
             }
 
-            snprintf(ext, sizeof(ext), "%d.mcr", i);
+            int index = i;
+            if (i == 0) index = memcard_left_index;
+            else if (i == 1) index = memcard_right_index;
+
+            snprintf(ext, sizeof(ext), "%d.mcr", index);
             memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
             PSX_FIO->SaveMemcard(i, memcard);
             Memcard_SaveDelay[i] = -1;
@@ -4700,9 +4797,9 @@ void retro_deinit(void)
    delete surf;
    surf = NULL;
 
-   log_cb(RETRO_LOG_INFO, "[%s]: Samples / Frame: %.5f\n",
+   log_cb(RETRO_LOG_DEBUG, "[%s]: Samples / Frame: %.5f\n",
          MEDNAFEN_CORE_NAME, (double)audio_frames / video_frames);
-   log_cb(RETRO_LOG_INFO, "[%s]: Estimated FPS: %.5f\n",
+   log_cb(RETRO_LOG_DEBUG, "[%s]: Estimated FPS: %.5f\n",
          MEDNAFEN_CORE_NAME, (double)video_frames * 44100 / audio_frames);
 
    libretro_supports_bitmasks = false;
@@ -4758,6 +4855,7 @@ void retro_set_input_poll(retro_input_poll_t cb)
 void retro_set_input_state(retro_input_state_t cb)
 {
    input_state_cb = cb;
+   dbg_input_state_cb = cb;
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb)

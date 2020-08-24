@@ -99,13 +99,13 @@ ifneq (,$(findstring unix,$(platform)))
       IS_X86 = 1
    endif
    ifneq (,$(findstring Haiku,$(shell uname -s)))
-     LDFLAGS += $(PTHREAD_FLAGS) -lroot
+      LDFLAGS += $(PTHREAD_FLAGS) -lroot
    else
-     LDFLAGS += $(PTHREAD_FLAGS) -ldl
-   endif
-   ifeq ($(HAVE_LIGHTREC), 1)
-      LDFLAGS += -lrt
-      FLAGS += -DHAVE_SHM
+      LDFLAGS += $(PTHREAD_FLAGS) -ldl
+      ifeq ($(HAVE_LIGHTREC), 1)
+         LDFLAGS += -lrt
+         FLAGS += -DHAVE_SHM
+      endif
    endif
    FLAGS   +=
    ifeq ($(HAVE_OPENGL),1)
@@ -172,6 +172,7 @@ else ifneq (,$(findstring ios,$(platform)))
    else
       IPHONEMINVER = -miphoneos-version-min=5.0
    endif
+   HAVE_LIGHTREC = 0
    LDFLAGS += $(IPHONEMINVER)
    FLAGS   += $(IPHONEMINVER)
    CC      += $(IPHONEMINVER)
@@ -182,6 +183,7 @@ else ifeq ($(platform), tvos-arm64)
    TARGET := $(TARGET_NAME)_libretro_tvos.dylib
    fpic := -fPIC
    SHARED := -dynamiclib
+   HAVE_LIGHTREC = 0
 
 ifeq ($(IOSSDK),)
    IOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
@@ -657,18 +659,16 @@ else
 endif
 
 %.o: %.cpp
-	@$(CXX) -c $(OBJOUT)$@ $< $(CXXFLAGS)
-	@echo "CXX $<"
+	$(CXX) -c $(OBJOUT)$@ $< $(CXXFLAGS)
 
 %.o: %.c
-	@$(CC) -c $(OBJOUT)$@ $< $(CFLAGS)
-	@echo "CC $<"
+	$(CC) -c $(OBJOUT)$@ $< $(CFLAGS)
 
 clean:
 	@rm -f $(OBJECTS)
-	@echo rm -f *.o
+	@echo rm -f "*.o"
 	@rm -f $(DEPS)
-	@echo rm -f *.d
+	@echo rm -f "*.d"
 	rm -f $(TARGET) $(TARGET_TMP)
 
 .PHONY: clean
