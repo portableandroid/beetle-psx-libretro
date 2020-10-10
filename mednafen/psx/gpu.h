@@ -4,11 +4,9 @@
 #ifndef __MDFN_PSX_GPU_H
 #define __MDFN_PSX_GPU_H
 
-#include <map>
-#include <queue>
-#include <cmath>
 #include <math.h>
-#include "FastFIFO.h"
+
+#include "../git.h"
 
 #if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
 #include <glsm/glsmsym.h>
@@ -151,6 +149,8 @@ struct PS_GPU
    uint16_t off_u, off_v;
    // primitive UV limits (used to clamp texture sampling)
    uint16_t min_u, min_v, max_u, max_v;
+   bool may_be_2d;
+   bool du_ge_1, dv_ge_1;
 
    line_point InPLine_PrevPoint;
 

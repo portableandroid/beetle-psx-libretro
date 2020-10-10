@@ -25,6 +25,8 @@
 #include "cpu.h"
 
 #include "../state_helpers.h"
+#include "../math_ops.h"
+#include "../mednafen.h"
 #include "../mednafen-endian.h"
 
 // iCB: PGXP STUFF
@@ -34,10 +36,9 @@
 int pgxpMode = PGXP_GetModes();
 
 #ifdef HAVE_LIGHTREC
- #include <lightrec.h>
- #include <stdio.h>
- #include <unistd.h>
- #include <signal.h>
+#include <lightrec.h>
+#include <unistd.h>
+#include <signal.h>
 
 enum DYNAREC prev_dynarec;
 bool prev_invalidate;

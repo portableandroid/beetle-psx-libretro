@@ -121,6 +121,19 @@ struct retro_core_option_definition option_defs_us[] = {
       },
       "1x(native)"
    },
+#ifdef HAVE_VULKAN
+   {
+      BEETLE_OPT(scaled_uv_offset),
+      "Texture UV Offset",
+      "Sample textures for 3D polygons at an offset for higher than 1x internal resolution. Reduce texture seams but may cause unintended graphical glitches.",
+      {
+         { "enabled",  NULL },
+         { "disabled", NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
+#endif
 #if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES) || defined(HAVE_VULKAN)
    {
       BEETLE_OPT(filter),
@@ -137,6 +150,32 @@ struct retro_core_option_definition option_defs_us[] = {
       },
       "nearest"
    },
+#ifdef HAVE_VULKAN
+   {
+      BEETLE_OPT(filter_exclude_sprite),
+      "Exclude Sprites from Filtering",
+      "Do not apply texture filtering to sprites. Prevent seams in various games with 2D sprite-rendered backgrounds. Use together with Adaptive Smoothing or another post-processing filter for best effect.",
+      {
+         { "disable", NULL },
+         { "opaque", "Opaque Only" },
+         { "all", "Opaque and Semi-Transparent" },
+         { NULL, NULL },
+      },
+      "disable"
+   },
+   {
+      BEETLE_OPT(filter_exclude_2d_polygon),
+      "Exclude 2D Polygons from Filtering",
+      "Do not apply texture filtering to 2D polygons. 2D polygons are detected with a heuristic and there may be glitches. Use together with Adaptive Smoothing or another post-processing filter for best effect.",
+      {
+         { "disable", NULL },
+         { "opaque", "Opaque Only" },
+         { "all", "Opaque and Semi-Transparent" },
+         { NULL, NULL },
+      },
+      "disable"
+   },
+#endif
 #endif
 #ifdef HAVE_VULKAN
    {
@@ -256,6 +295,36 @@ struct retro_core_option_definition option_defs_us[] = {
          { "disabled",     NULL },
          { "memory only",  "Memory Only" },
          { "memory + CPU", "Memory + CPU (Buggy)" },
+         { NULL, NULL },
+      },
+      "disabled"
+   },
+   {
+      BEETLE_OPT(pgxp_2d_tol),
+      "PGXP 2D Geometry Tolerance",
+      "Hide more glaring errors in PGXP operations: the value specifies the tolerance in which PGXP values will be kept in case of geometries without proper depth information.",
+      {
+         { "disabled", NULL },
+         { "0px", NULL },
+         { "1px", NULL },
+         { "2px", NULL },
+         { "3px", NULL },
+         { "4px", NULL },
+         { "5px", NULL },
+         { "6px", NULL },
+         { "7px", NULL },
+         { "8px", NULL },
+         { NULL, NULL },
+      },
+      "disabled"
+   },
+   {
+      BEETLE_OPT(pgxp_nclip),
+      "PGXP Primitive Culling",
+      "Use PGXP's NCLIP implementation. Improves appearance by reducing holes in geometries with PGXP coordinates. Known to cause some games to lock up in various circumstances.",
+      {
+         { "disabled", NULL },
+         { "enabled", NULL },
          { NULL, NULL },
       },
       "disabled"

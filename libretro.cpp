@@ -2,7 +2,7 @@
 #include "mednafen/mempatcher.h"
 #include "mednafen/git.h"
 #include "mednafen/general.h"
-#include "mednafen/md5.h"
+#include "mednafen/settings.h"
 #include <compat/msvc.h>
 #include "mednafen/psx/gpu.h"
 #ifdef NEED_DEINTERLACER
@@ -137,8 +137,10 @@ enum dither_mode psx_gpu_dither_mode;
 
 //iCB: PGXP options
 unsigned int psx_pgxp_mode;
+int psx_pgxp_2d_tol;
 unsigned int psx_pgxp_vertex_caching;
 unsigned int psx_pgxp_texture_correction;
+unsigned int psx_pgxp_nclip;
 // \iCB
 
 #define NEGCON_RANGE 0x7FFF
@@ -335,7 +337,6 @@ bool setting_apply_analog_toggle  = false;
 bool use_mednafen_memcard0_method = false;
 
 extern MDFNGI EmulatedPSX;
-MDFNGI *MDFNGameInfo = NULL;
 
 #if PSX_DBGPRINT_ENABLE
 static unsigned psx_dbg_level = 0;
@@ -1321,17 +1322,11 @@ static bool TestMagicCD(std::vector<CDIF *> *_CDInterfaces)
    TOC toc;
    int dt;
 
-#ifndef HAVE_CDROM_NEW
    TOC_Clear(&toc);
-#endif
 
    (*_CDInterfaces)[0]->ReadTOC(&toc);
 
-#ifdef HAVE_CDROM_NEW
-   dt = toc.FindTrackByLBA(4);
-#else
    dt = TOC_FindTrackByLBA(&toc, 4);
-#endif
 
    if(dt > 0 && !(toc.tracks[dt].control & 0x4))
       return(false);
@@ -1923,7 +1918,7 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
          break;
    }
 
-   PGXP_SetModes(psx_pgxp_mode | psx_pgxp_vertex_caching | psx_pgxp_texture_correction);
+   PGXP_SetModes(psx_pgxp_mode | psx_pgxp_vertex_caching | psx_pgxp_texture_correction | psx_pgxp_nclip);
 
    CD_TrayOpen        = true;
    CD_SelectedDisc    = -1;
@@ -2033,7 +2028,7 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
          abort();
 
       const char *biospath = MDFN_MakeFName(MDFNMKF_FIRMWARE,
-            0, MDFN_GetSettingS(biospath_sname).c_str());
+            0, MDFN_GetSettingS(biospath_sname));
 
       BIOSFile      = filestream_open(biospath,
             RETRO_VFS_FILE_ACCESS_READ,
@@ -2287,8 +2282,6 @@ static int Load(const char *name, RFILE *fp)
       free(header);
    }
 
-   MDFNGameInfo = &EmulatedPSX;
-
    disk_control_ext_info.image_paths.push_back(name);
    extract_basename(image_label, name, sizeof(image_label));
    disk_control_ext_info.image_labels.push_back(image_label);
@@ -2303,7 +2296,7 @@ static int LoadCD(std::vector<CDIF *> *_CDInterfaces)
    if (psx_skipbios == 1)
    BIOSROM->WriteU32(0x6990, 0);
 
-   MDFNGameInfo->GameType = GMT_CDROM;
+   EmulatedPSX.GameType = GMT_CDROM;
 
    return(1);
 }
@@ -2405,7 +2398,6 @@ static void CDInsertEject(void)
 
    for(unsigned disc = 0; disc < cdifs->size(); disc++)
    {
-#ifndef HAVE_CDROM_NEW
       if(!(*cdifs)[disc]->Eject(CD_TrayOpen))
       {
          MDFND_DispMessage(3, RETRO_LOG_ERROR,
@@ -2414,7 +2406,6 @@ static void CDInsertEject(void)
 
          CD_TrayOpen = !CD_TrayOpen;
       }
-#endif
    }
 
    if(CD_TrayOpen)
@@ -2734,88 +2725,11 @@ static CheatFormatInfoStruct CheatFormatInfo =
    CheatFormats
 };
 
-static const FileExtensionSpecStruct KnownExtensions[] =
-{
-   { ".psf", "PSF1 Rip" },
-   { ".psx", "PS-X Executable" },
-   { ".exe", "PS-X Executable" },
-   { NULL, NULL }
-};
-
-static const MDFNSetting_EnumList Region_List[] =
-{
-   { "jp", REGION_JP, "Japan" },
-   { "na", REGION_NA, "North America" },
-   { "eu", REGION_EU, "Europe" },
-   { NULL, 0 },
-};
-
-#if 0
-static const MDFNSetting_EnumList MultiTap_List[] =
-{
- { "0", 0, "Disabled" },
- { "1", 1, "Enabled" },
- { "auto", 0, "Automatically-enable multitap.", "NOT IMPLEMENTED YET(currently equivalent to 0") },
- { NULL, 0 },
-};
-#endif
-
-static MDFNSetting PSXSettings[] =
-{
-   { "psx.input.analog_mode_ct", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Enable analog mode combo-button alternate toggle.", "When enabled, instead of the configured Analog mode toggle button for the emulated DualShock, use a combination of buttons to toggle it instead.  When Select, Start, and all four shoulder buttons are held down for about 1 second, the mode will toggle.", MDFNST_BOOL, "0", NULL, NULL },
-
-   { "psx.input.pport1.multitap", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Enable multitap on PSX port 1.", "Makes 3 more virtual ports available.\n\nNOTE: Enabling multitap in games that don't fully support it may cause deleterious effects.", MDFNST_BOOL, "0", NULL, NULL }, //MDFNST_ENUM, "auto", NULL, NULL, NULL, NULL, MultiTap_List },
-   { "psx.input.pport2.multitap", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Enable multitap on PSX port 2.", "Makes 3 more virtual ports available.\n\nNOTE: Enabling multitap in games that don't fully support it may cause deleterious effects.", MDFNST_BOOL, "0", NULL, NULL },
-
-   { "psx.input.port1.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 1.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port2.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 2.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port3.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 3.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port4.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 4.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port5.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 5.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port6.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 6.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port7.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 7.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-   { "psx.input.port8.memcard", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Emulate memcard on virtual port 8.", NULL, MDFNST_BOOL, "1", NULL, NULL, },
-
-
-   { "psx.input.port1.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 1.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF0000", "0x000000", "0x1000000" },
-   { "psx.input.port2.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 2.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x00FF00", "0x000000", "0x1000000" },
-   { "psx.input.port3.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 3.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF00FF", "0x000000", "0x1000000" },
-   { "psx.input.port4.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 4.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF8000", "0x000000", "0x1000000" },
-   { "psx.input.port5.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 5.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFFFF00", "0x000000", "0x1000000" },
-   { "psx.input.port6.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 6.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x00FFFF", "0x000000", "0x1000000" },
-   { "psx.input.port7.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 7.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x0080FF", "0x000000", "0x1000000" },
-   { "psx.input.port8.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 8.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x8000FF", "0x000000", "0x1000000" },
-
-   { "psx.region_autodetect", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Attempt to auto-detect region of game.", NULL, MDFNST_BOOL, "1" },
-   { "psx.region_default", MDFNSF_EMU_STATE | MDFNSF_UNTRUSTED_SAFE, "Default region to use.", "Used if region autodetection fails or is disabled.", MDFNST_ENUM, "jp", NULL, NULL, NULL, NULL, Region_List },
-
-   { "psx.bios_jp", MDFNSF_EMU_STATE, "Path to the Japan SCPH-5500 ROM BIOS", NULL, MDFNST_STRING, "scph5500.bin" },
-   { "psx.bios_na", MDFNSF_EMU_STATE, "Path to the North America SCPH-5501 ROM BIOS", "SHA1 0555c6fae8906f3f09baf5988f00e55f88e9f30b", MDFNST_STRING, "scph5501.bin" },
-   { "psx.bios_eu", MDFNSF_EMU_STATE, "Path to the Europe SCPH-5502 ROM BIOS", NULL, MDFNST_STRING, "scph5502.bin" },
-
-   { "psx.spu.resamp_quality", MDFNSF_NOFLAGS, "SPU output resampler quality.",
-   "0 is lowest quality and CPU usage, 10 is highest quality and CPU usage.  The resampler that this setting refers to is used for converting from 44.1KHz to the sampling rate of the host audio device Mednafen is using.  Changing Mednafen's output rate, via the \"sound.rate\" setting, to \"44100\" will bypass the resampler, which will decrease CPU usage by Mednafen, and can increase or decrease audio quality, depending on various operating system and hardware factors.", MDFNST_UINT, "5", "0", "10" },
-
-
-   { "psx.slstart", MDFNSF_NOFLAGS, "First displayed scanline in NTSC mode.", NULL, MDFNST_INT, "0", "0", "239" },
-   { "psx.slend", MDFNSF_NOFLAGS, "Last displayed scanline in NTSC mode.", NULL, MDFNST_INT, "239", "0", "239" },
-
-   { "psx.slstartp", MDFNSF_NOFLAGS, "First displayed scanline in PAL mode.", NULL, MDFNST_INT, "0", "0", "287" },
-   { "psx.slendp", MDFNSF_NOFLAGS, "Last displayed scanline in PAL mode.", NULL, MDFNST_INT, "287", "0", "287" },
-
-#if PSX_DBGPRINT_ENABLE
-   { "psx.dbg_level", MDFNSF_NOFLAGS, "Debug printf verbosity level.", NULL, MDFNST_UINT, "0", "0", "4" },
-#endif
-
-   { NULL },
-};
-
 // Note for the future: If we ever support PSX emulation with non-8-bit RGB color components, or add a new linear RGB colorspace to MDFN_PixelFormat, we'll need
 // to buffer the intermediate 24-bit non-linear RGB calculation into an array and pass that into the GPULineHook stuff, otherwise netplay could break when
 // an emulated GunCon is used.  This IS assuming, of course, that we ever implement save state support so that netplay actually works at all...
 MDFNGI EmulatedPSX =
 {
-   PSXSettings,
    MDFN_MASTERCLOCK_FIXED(33868800),
    0,
 
@@ -2922,36 +2836,6 @@ static bool disk_set_image_index(unsigned index)
 
 // Mednafen PSX really doesn't support adding disk images on the fly ...
 // Hack around this.
-static void mednafen_update_md5_checksum(CDIF *iface)
-{
-   uint8 LayoutMD5[16];
-   md5_context layout_md5;
-   TOC toc;
-
-   mednafen_md5_starts(&layout_md5);
-
-#ifndef HAVE_CDROM_NEW
-   TOC_Clear(&toc);
-#endif
-
-   iface->ReadTOC(&toc);
-
-   mednafen_md5_update_u32_as_lsb(&layout_md5, toc.first_track);
-   mednafen_md5_update_u32_as_lsb(&layout_md5, toc.last_track);
-   mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[100].lba);
-
-   for (uint32 track = toc.first_track; track <= toc.last_track; track++)
-   {
-      mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[track].lba);
-      mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[track].control & 0x4);
-   }
-
-   mednafen_md5_finish(&layout_md5, LayoutMD5);
-   memcpy(MDFNGameInfo->MD5, LayoutMD5, 16);
-
-   char *md5 = mednafen_md5_asciistr(MDFNGameInfo->MD5);
-   log_cb(RETRO_LOG_DEBUG, "[Mednafen]: Updated md5 checksum: %s.\n", md5);
-}
 
 // Untested ...
 static bool disk_replace_image_index(unsigned index, const struct retro_game_info *info)
@@ -2978,11 +2862,7 @@ static bool disk_replace_image_index(unsigned index, const struct retro_game_inf
 
    bool success = true;
 
-#ifdef HAVE_CDROM_NEW
-   CDIF *iface = CDIF_Open(info->path, false);
-#else
    CDIF *iface = CDIF_Open(&success, info->path, false, false);
-#endif
 
    if (!success)
       return false;
@@ -2993,8 +2873,6 @@ static bool disk_replace_image_index(unsigned index, const struct retro_game_inf
 
    /* If we replace, we want the "swap disk manually effect". */
    extract_basename(retro_cd_base_name, info->path, sizeof(retro_cd_base_name));
-   /* Ugly, but needed to get proper disk swapping effect. */
-   mednafen_update_md5_checksum(iface);
 
    /* Update disk path/label vectors */
    disk_control_ext_info.image_paths[index]  = info->path;
@@ -3426,57 +3304,55 @@ static void check_variables(bool startup)
          }
       }
 
-      if (hw_renderer)
+      var.key = BEETLE_OPT(internal_resolution);
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
       {
-         psx_gpu_upscale_shift = 0;
+         uint8_t new_upscale_shift;
+         uint8_t val = atoi(var.value);
+
+         // Upscale must be a power of two
+         assert((val & (val - 1)) == 0);
+
+         // Crappy "ffs" implementation since the standard function is not
+         // widely supported by libc in the wild
+         for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
+            val >>= 1;
+         psx_gpu_upscale_shift_hw = new_upscale_shift;
       }
       else
-      {
-         var.key = BEETLE_OPT(internal_resolution);
-         if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-         {
-            uint8_t new_upscale_shift;
-            uint8_t val = atoi(var.value);
-
-            // Upscale must be a power of two
-            assert((val & (val - 1)) == 0);
-
-            // Crappy "ffs" implementation since the standard function is not
-            // widely supported by libc in the wild
-            for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
-               val >>= 1;
-            psx_gpu_upscale_shift = new_upscale_shift;
-         }
-         else
-            psx_gpu_upscale_shift = 0;
-      }
+         psx_gpu_upscale_shift_hw = 0;
+      
+      if (hw_renderer)
+         psx_gpu_upscale_shift = 0;
+      else
+         psx_gpu_upscale_shift = psx_gpu_upscale_shift_hw;
    }
    else
    {
       rsx_intf_refresh_variables();
 
+      var.key = BEETLE_OPT(internal_resolution);
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         uint8_t new_upscale_shift;
+         uint8_t val = atoi(var.value);
+
+         // Upscale must be a power of two
+         assert((val & (val - 1)) == 0);
+
+         // Crappy "ffs" implementation since the standard function is not
+         // widely supported by libc in the wild
+         for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
+            val >>= 1;
+         psx_gpu_upscale_shift_hw = new_upscale_shift;
+      }
+      else
+         psx_gpu_upscale_shift_hw = 0;
+
       switch (rsx_intf_is_type())
       {
          case RSX_SOFTWARE:
-            var.key = BEETLE_OPT(internal_resolution);
-
-            if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-            {
-               uint8_t new_upscale_shift;
-               uint8_t val = atoi(var.value);
-
-               // Upscale must be a power of two
-               assert((val & (val - 1)) == 0);
-
-               // Crappy "ffs" implementation since the standard function is not
-               // widely supported by libc in the wild
-               for (new_upscale_shift = 0; (val & 1) == 0; ++new_upscale_shift)
-                  val >>= 1;
-               psx_gpu_upscale_shift = new_upscale_shift;
-            }
-            else
-               psx_gpu_upscale_shift = 0;
-
+            psx_gpu_upscale_shift = psx_gpu_upscale_shift_hw;
             break;
          case RSX_OPENGL:
          case RSX_VULKAN:
@@ -3512,6 +3388,17 @@ static void check_variables(bool startup)
    else
       psx_pgxp_mode = PGXP_MODE_NONE;
 
+   var.key = BEETLE_OPT(pgxp_2d_tol);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         psx_pgxp_2d_tol = -1;
+      else
+         psx_pgxp_2d_tol = atoi(var.value);
+   }
+   else
+      psx_pgxp_2d_tol = -1;
+
    var.key = BEETLE_OPT(pgxp_vertex);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
@@ -3534,6 +3421,17 @@ static void check_variables(bool startup)
    else
       psx_pgxp_texture_correction = PGXP_MODE_NONE;
    // \iCB
+
+   var.key = BEETLE_OPT(pgxp_nclip);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         psx_pgxp_nclip = PGXP_MODE_NONE;
+      else if (strcmp(var.value, "enabled") == 0)
+         psx_pgxp_nclip = PGXP_NCLIP_IMPL;
+   }
+   else
+      psx_pgxp_nclip = PGXP_MODE_NONE;
 
    var.key = BEETLE_OPT(line_render);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -3862,7 +3760,7 @@ static void ReadM3U(std::vector<std::string> &file_list, std::string path, unsig
       if(linebuf[0] == 0)
          continue;
 
-      efp = MDFN_EvalFIP(dir_path, std::string(linebuf));
+      efp = MDFN_EvalFIP(dir_path, std::string(linebuf), false);
 
       if(efp.size() >= 4 && efp.substr(efp.size() - 4) == ".m3u")
       {
@@ -3890,10 +3788,8 @@ end:
 
 // TODO: LoadCommon()
 
-static MDFNGI *MDFNI_LoadCD(const char *devicename)
+static bool MDFNI_LoadCD(const char *devicename)
 {
-   uint8 LayoutMD5[16];
-
    log_cb(RETRO_LOG_INFO, "Loading %s...\n", devicename);
 
    try
@@ -3909,13 +3805,8 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
 
             image_label[0] = '\0';
 
-#ifdef HAVE_CDROM_NEW
-            CDIF *image  = CDIF_Open(
-                  disk_control_ext_info.image_paths[i].c_str(), old_cdimagecache);
-#else
             CDIF *image  = CDIF_Open(
                   &success, disk_control_ext_info.image_paths[i].c_str(), false, old_cdimagecache);
-#endif
             CDInterfaces.push_back(image);
 
             extract_basename(
@@ -3927,11 +3818,7 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
       else if(devicename && strlen(devicename) > 4 && !strcasecmp(devicename + strlen(devicename) - 4, ".pbp"))
       {
          bool success = true;
-#ifdef HAVE_CDROM_NEW
-         CDIF *image  = CDIF_Open(devicename, old_cdimagecache);
-#else
          CDIF *image  = CDIF_Open(&success, devicename, false, old_cdimagecache);
-#endif
          CD_IsPBP     = true;
          CDInterfaces.push_back(image);
 
@@ -3965,13 +3852,9 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
 
          image_label[0] = '\0';
 
-#ifdef HAVE_CDROM_NEW
-         CDIF *image  = CDIF_Open(devicename, old_cdimagecache);
-#else
          CDIF *image  = CDIF_Open(&success, devicename, false, old_cdimagecache);
-#endif
          if (!success)
-            return(0);
+            return false;
 
          CDInterfaces.push_back(image);
 
@@ -3983,16 +3866,14 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
    catch(std::exception &e)
    {
       log_cb(RETRO_LOG_ERROR, "Error opening CD.\n");
-      return(0);
+      return false;
    }
 
    // Print out a track list for all discs.
    for(unsigned i = 0; i < CDInterfaces.size(); i++)
    {
       TOC toc;
-#ifndef HAVE_CDROM_NEW
       TOC_Clear(&toc);
-#endif
 
       CDInterfaces[i]->ReadTOC(&toc);
 
@@ -4006,44 +3887,6 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
       log_cb(RETRO_LOG_DEBUG, "Leadout: %6d\n", toc.tracks[100].lba);
    }
 
-   // Calculate layout MD5.  The system emulation LoadCD() code is free to ignore this value and calculate
-   // its own, or to use it to look up a game in its database.
-   {
-      md5_context layout_md5;
-
-      mednafen_md5_starts(&layout_md5);
-
-      for(unsigned i = 0; i < CDInterfaces.size(); i++)
-      {
-         TOC toc;
-
-#ifndef HAVE_CDROM_NEW
-         TOC_Clear(&toc);
-#endif
-         CDInterfaces[i]->ReadTOC(&toc);
-
-         mednafen_md5_update_u32_as_lsb(&layout_md5, toc.first_track);
-         mednafen_md5_update_u32_as_lsb(&layout_md5, toc.last_track);
-         mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[100].lba);
-
-         for(uint32 track = toc.first_track; track <= toc.last_track; track++)
-         {
-            mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[track].lba);
-            mednafen_md5_update_u32_as_lsb(&layout_md5, toc.tracks[track].control & 0x4);
-         }
-      }
-
-      mednafen_md5_finish(&layout_md5, LayoutMD5);
-   }
-
-   if (MDFNGameInfo == NULL)
-   {
-      MDFNGameInfo = &EmulatedPSX;
-   }
-
-   // TODO: include module name in hash
-   memcpy(MDFNGameInfo->MD5, LayoutMD5, 16);
-
    if(!(LoadCD(&CDInterfaces)))
    {
       for(unsigned i = 0; i < CDInterfaces.size(); i++)
@@ -4055,8 +3898,7 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
       disk_control_ext_info.image_paths.clear();
       disk_control_ext_info.image_labels.clear();
 
-      MDFNGameInfo = NULL;
-      return NULL;
+      return false;
    }
 
    //MDFNI_SetLayerEnableMask(~0ULL);
@@ -4064,11 +3906,11 @@ static MDFNGI *MDFNI_LoadCD(const char *devicename)
    MDFN_LoadGameCheats(NULL);
    MDFNMP_InstallReadPatches();
 
-   return(MDFNGameInfo);
+   return true;
 }
 #endif
 
-static MDFNGI *MDFNI_LoadGame(const char *name)
+static bool MDFNI_LoadGame(const char *name)
 {
    RFILE *GameFile = NULL;
 
@@ -4095,14 +3937,14 @@ static MDFNGI *MDFNI_LoadGame(const char *name)
    filestream_close(GameFile);
    GameFile   = NULL;
 
-   return(MDFNGameInfo);
+   return true;
 
 error:
    if (GameFile)
       filestream_close(GameFile);
    GameFile     = NULL;
-   MDFNGameInfo = NULL;
-   return NULL;
+
+   return false;
 }
 
 bool retro_load_game(const struct retro_game_info *info)
@@ -4187,6 +4029,12 @@ bool retro_load_game(const struct retro_game_info *info)
 
          option_display.key = BEETLE_OPT(renderer_software_fb);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(scaled_uv_offset);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(filter_exclude_sprite);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(filter_exclude_2d_polygon);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(adaptive_smoothing);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(super_sampling);
@@ -4218,6 +4066,12 @@ bool retro_load_game(const struct retro_game_info *info)
          struct retro_core_option_display option_display;
          option_display.visible = false;
 
+         option_display.key = BEETLE_OPT(scaled_uv_offset);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(filter_exclude_sprite);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(filter_exclude_2d_polygon);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(adaptive_smoothing);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(super_sampling);
@@ -4279,9 +4133,6 @@ bool retro_load_game(const struct retro_game_info *info)
 
 void retro_unload_game(void)
 {
-   if(!MDFNGameInfo)
-      return;
-
    rsx_intf_close();
 
    MDFN_FlushGameCheats(0);
@@ -4289,8 +4140,6 @@ void retro_unload_game(void)
    CloseGame();
 
    MDFNMP_Kill();
-
-   MDFNGameInfo = NULL;
 
    for(unsigned i = 0; i < CDInterfaces.size(); i++)
       delete CDInterfaces[i];
@@ -4396,7 +4245,7 @@ void retro_run(void)
       GPU_set_visible_scanlines(MDFN_GetSettingI(content_is_pal ? "psx.slstartp" : "psx.slstart"),
                                 MDFN_GetSettingI(content_is_pal ? "psx.slendp" : "psx.slend"));
 
-      PGXP_SetModes(psx_pgxp_mode | psx_pgxp_vertex_caching | psx_pgxp_texture_correction);
+      PGXP_SetModes(psx_pgxp_mode | psx_pgxp_vertex_caching | psx_pgxp_texture_correction | psx_pgxp_nclip);
 
       // Reload memory cards if they were changed
       if (use_mednafen_memcard0_method &&
@@ -4661,7 +4510,7 @@ void retro_run(void)
          if (!PrevInterlaced)
             deint.ClearState();
 
-         deint.Process(spec.surface, spec.DisplayRect, spec.LineWidths, spec.InterlaceField);
+         deint.Process(surf, spec.DisplayRect, rects, spec.InterlaceField);
 
          PrevInterlaced = true;
 
@@ -4865,8 +4714,6 @@ void retro_set_video_refresh(retro_video_refresh_t cb)
    rsx_intf_set_video_refresh(cb);
 }
 
-static size_t serialize_size;
-
 size_t retro_serialize_size(void)
 {
    if (enable_variable_serialization_size)
@@ -4883,10 +4730,10 @@ size_t retro_serialize_size(void)
          return 0;
 
       free(st.data);
-      return serialize_size = st.len;
+      return st.len;
    }
 
-   return serialize_size = DEFAULT_STATE_SIZE; // 16MB
+   return DEFAULT_STATE_SIZE; // 16MB
 }
 
 bool UsingFastSavestates(void)
@@ -4977,9 +4824,9 @@ void *retro_get_memory_data(unsigned type)
       case RETRO_MEMORY_SYSTEM_RAM:
          return MainRAM->data8;
       case RETRO_MEMORY_SAVE_RAM:
-         if (use_mednafen_memcard0_method)
-            return NULL;
-         return PSX_FIO->GetMemcardDevice(0)->GetNVData();
+         if (!use_mednafen_memcard0_method)
+            return PSX_FIO->GetMemcardDevice(0)->GetNVData();
+         break;
       default:
          break;
    }
@@ -4993,9 +4840,9 @@ size_t retro_get_memory_size(unsigned type)
       case RETRO_MEMORY_SYSTEM_RAM:
          return 0x200000;
       case RETRO_MEMORY_SAVE_RAM:
-         if (use_mednafen_memcard0_method)
-            return 0;
-         return (1 << 17);
+         if (!use_mednafen_memcard0_method)
+            return (1 << 17);
+         break;
       default:
          break;
    }
