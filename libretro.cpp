@@ -4930,11 +4930,19 @@ const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)
    switch (type)
    {
       case MDFNMKF_SAV:
+#ifdef PORTANDROID
+         r = snprintf(fullpath, sizeof(fullpath), "%s%c%s%s",
+                      retro_save_directory,
+                      retro_slash,
+                      shared_memorycards ? "beetle_memory_card" : retro_cd_base_name,
+                      cd1);
+#else
          r = snprintf(fullpath, sizeof(fullpath), "%s%c%s.%s",
                retro_save_directory,
                retro_slash,
                shared_memorycards ? "mednafen_psx_libretro_shared" : retro_cd_base_name,
                cd1);
+#endif
          break;
       case MDFNMKF_FIRMWARE:
          r = snprintf(fullpath, sizeof(fullpath), "%s%c%s", retro_base_directory, retro_slash, cd1);
