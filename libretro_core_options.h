@@ -582,6 +582,19 @@ struct retro_core_option_definition option_defs_us[] = {
       "disabled"
    },
    {
+      BEETLE_OPT(widescreen_hack_aspect_ratio),
+      "Widescreen Mode Hack Aspect Ratio",
+      "The aspect ratio that's used by the Widescreen Mode Hack.",
+      {
+         { "16:10", NULL },
+         { "16:9",  NULL },
+         { "21:9",  NULL }, // 64:27
+         { "32:9",  NULL },
+         { NULL,    NULL },
+      },
+      "16:9"
+   },
+   {
       BEETLE_OPT(pal_video_timing_override),
       "PAL (European) Video Timing Override",
       "Due to different standards PAL games often appear slowed down compared to the American or Japanese NTSC releases. This option can be used to override PAL timings in order to attempt to run these games with the NTSC framerate. This option has no effect when running NTSC content.",
@@ -1019,7 +1032,7 @@ struct retro_core_option_definition option_defs_us[] = {
    {
       BEETLE_OPT(shared_memory_cards),
       "Shared Memory Cards (Restart)",
-      "When enabled, all games will save to and load from the same memory card files. When disabled, separate memory card files will be generated for each item of loaded content. Note: 'Memory Card 0 Method' must be set to 'Mednafen' for shared memory cards to take effect.",
+      "When enabled, all games will save to and load from the same memory card files. When disabled, separate memory card files will be generated for each item of loaded content. Note: if 'Memory Card 0 Method' is set to 'Libretro', only the right memory card will be affected.",
       {
          { "disabled", NULL },
          { "enabled",  NULL },

@@ -46,6 +46,7 @@ char CdromId[10] = "";
 #ifdef HAVE_ASHMEM
 #include <sys/ioctl.h>
 #include <linux/ashmem.h>
+#include <dlfcn.h>
 #endif
 
 #if defined(HAVE_SHM) || defined(HAVE_ASHMEM)
@@ -225,6 +226,7 @@ static bool firmware_is_present(unsigned region)
       int r = snprintf(bios_path, sizeof(bios_path), "%s%c%s", retro_base_directory, retro_slash, bios_name_list[i]);
       if (r >= 4096)
       {
+         bios_path[4095] = '\0';
          log_cb(RETRO_LOG_ERROR, "Firmware path longer than 4095: %s\n", bios_path);
          break;
       }
@@ -1668,6 +1670,7 @@ static const uintptr_t supported_io_bases[] = {
 #define RAM_SIZE 0x200000
 #define BIOS_SIZE 0x80000
 #define SCRATCH_SIZE 0x400
+#define SHM_SIZE RAM_SIZE+BIOS_SIZE+SCRATCH_SIZE
 
 #ifdef HAVE_WIN_SHM
 #define MAP(addr, size, fd, offset) \
@@ -1702,12 +1705,49 @@ int lightrec_init_mmap()
 	memfd = open("/dev/ashmem", O_RDWR);
 
 	if (memfd < 0) {
-		log_cb(RETRO_LOG_ERROR, "Failed to create ASHMEM: %s\n", strerror(errno));
-		return 0;
-	}
+		/* Android 10+ / API 29+ gives EACCES (permission denied) opening /dev/ashmem
+		 * fallback to ASharedMemory_create available since Android 8 / API 26 */
+		if(errno == EACCES) {
+			void *lib;
+			int (*create)(const char*, size_t);
+			int (*setProt)(int, int);
+			char *error1, *error2;
 
-	ioctl(memfd, ASHMEM_SET_NAME, "lightrec_memfd");
-	ioctl(memfd, ASHMEM_SET_SIZE, RAM_SIZE+BIOS_SIZE+SCRATCH_SIZE);
+			dlerror();      /* Clear any existing error */
+			lib = dlopen("libandroid.so", RTLD_NOW);
+			if (lib == NULL) {
+				log_cb(RETRO_LOG_ERROR, "Failed to dlopen: %s\n", dlerror());
+				return 0;
+			}
+
+			*(void **)(&create) = dlsym(lib, "ASharedMemory_create");
+			error1 = dlerror();
+			*(void **)(&setProt) = dlsym(lib, "ASharedMemory_setProt");
+			error2 = dlerror();
+
+			if (error1 == NULL)
+				memfd = (*create)("lightrec_memfd",SHM_SIZE);
+
+			if (memfd < 0) {
+				log_cb(RETRO_LOG_ERROR, "Failed to ASharedMemory_create: %s\n",
+							(error1 != NULL) ? error1 : strerror(errno));
+				dlclose(lib);
+				return 0;
+			}
+
+			if (error2 != NULL || (((*setProt)(memfd, PROT_READ|PROT_WRITE)) < 0))
+				log_cb(RETRO_LOG_ERROR, "Failed to ASharedMemory_setProt: %s\n",
+							(error2 != NULL) ? error2 : strerror(errno));
+
+			dlclose(lib);
+		} else {
+			log_cb(RETRO_LOG_ERROR, "Failed to create ASHMEM: %s\n", strerror(errno));
+			return 0;
+		}
+	} else {
+		ioctl(memfd, ASHMEM_SET_NAME, "lightrec_memfd");
+		ioctl(memfd, ASHMEM_SET_SIZE, SHM_SIZE);
+	}
 #endif
 #ifdef HAVE_SHM
 	int memfd;
@@ -1724,7 +1764,7 @@ int lightrec_init_mmap()
 	/* unlink ASAP to prevent leaving a file in shared memory if we crash */
 	shm_unlink(shm_name);
 
-	if (ftruncate(memfd, RAM_SIZE+BIOS_SIZE+SCRATCH_SIZE) < 0) {
+	if (ftruncate(memfd, SHM_SIZE) < 0) {
 		log_cb(RETRO_LOG_ERROR, "Could not truncate SHM size: %s\n", strerror(errno));
 		goto close_return;
 	}
@@ -1732,8 +1772,7 @@ int lightrec_init_mmap()
 #ifdef HAVE_WIN_SHM
 	HANDLE memfd;
 
-	memfd = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
-			RAM_SIZE+BIOS_SIZE+SCRATCH_SIZE, NULL);
+	memfd = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, SHM_SIZE, NULL);
 
 	if (memfd == NULL) {
 		log_cb(RETRO_LOG_ERROR, "Failed to create WIN_SHM: %s (%d)\n", strerror(errno), GetLastError());
@@ -1832,7 +1871,7 @@ void lightrec_free_mmap()
 	UNMAP(psx_scratch, SCRATCH_SIZE);
 
 #ifdef HAVE_ASHMEM
-	/* ashmem shared memory is not pinned by mmap, it dies on close */
+	/* android shared memory is not pinned by mmap, it dies on close */
 	close(memfd);
 #endif
 }
@@ -2384,7 +2423,6 @@ static void CloseGame(void)
          }
          catch(std::exception &e)
          {
-            log_cb(RETRO_LOG_ERROR, "%s\n", e.what());
          }
       }
    }
@@ -3056,9 +3094,9 @@ bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t)
 }
 
 #ifdef EMSCRIPTEN
-static bool old_cdimagecache = true;
+static bool cdimagecache = true;
 #else
-static bool old_cdimagecache = false;
+static bool cdimagecache = false;
 #endif
 
 static bool boot = true;
@@ -3069,11 +3107,11 @@ static bool shared_memorycards = false;
 static bool has_new_geometry = false;
 static bool has_new_timing = false;
 
+extern void PSXDitherApply(bool);
+
 static void check_variables(bool startup)
 {
    struct retro_variable var = {0};
-
-   extern void PSXDitherApply(bool);
 
 #ifndef EMSCRIPTEN
    var.key = BEETLE_OPT(cd_access_method);
@@ -3081,17 +3119,17 @@ static void check_variables(bool startup)
    {
       if (strcmp(var.value, "sync") == 0)
       {
-         old_cdimagecache = false;
+         cdimagecache = false;
          cd_async = false;
       }
       else if (strcmp(var.value, "async") == 0)
       {
-         old_cdimagecache = false;
+         cdimagecache = false;
          cd_async = true;
       }
       else if (strcmp(var.value, "precache") == 0)
       {
-         old_cdimagecache = true;
+         cdimagecache = true;
          cd_async = false;
       }
    }
@@ -3213,6 +3251,41 @@ static void check_variables(bool startup)
       if (widescreen_hack == true)
          has_new_geometry = true;
       widescreen_hack = false;
+   }
+
+   var.key = BEETLE_OPT(widescreen_hack_aspect_ratio);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "16:10"))
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 0)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 0;
+      }
+      else if (!strcmp(var.value, "16:9"))
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 1)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 1;
+      }
+      else if (!strcmp(var.value, "21:9")) // 64:27
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 2)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 2;
+      }
+      else if (!strcmp(var.value, "32:9"))
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 3)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 3;
+      }
+   }
+   else
+   {
+      if (!startup && widescreen_hack_aspect_ratio_setting != 1)
+         has_new_geometry = true;
+      widescreen_hack_aspect_ratio_setting = 1;
    }
 
    var.key = BEETLE_OPT(pal_video_timing_override);
@@ -3628,12 +3701,12 @@ static void check_variables(bool startup)
       {
          if (!strcmp(var.value, "enabled"))
          {
-            if(use_mednafen_memcard0_method)
+            // if(use_mednafen_memcard0_method)
                shared_memorycards = true;
-            else
-               MDFND_DispMessage(3, RETRO_LOG_WARN,
-                     RETRO_MESSAGE_TARGET_ALL, RETRO_MESSAGE_TYPE_NOTIFICATION,
-                     "Memory Card 0 Method not set to Mednafen; shared memory cards could not be enabled.");
+            // else
+               // MDFND_DispMessage(3, RETRO_LOG_WARN,
+                     // RETRO_MESSAGE_TARGET_ALL, RETRO_MESSAGE_TYPE_NOTIFICATION,
+                     // "Memory Card 0 Method not set to Mednafen; shared memory cards could not be enabled.");
          }
          else if (!strcmp(var.value, "disabled"))
          {
@@ -3743,14 +3816,15 @@ static void ReadM3U(std::vector<std::string> &file_list, std::string path, unsig
 {
    std::string dir_path;
    char linebuf[2048];
-   FILE *fp = fopen(path.c_str(), "rb");
+   RFILE *fp = filestream_open(path.c_str(), RETRO_VFS_FILE_ACCESS_READ,
+         RETRO_VFS_FILE_ACCESS_HINT_NONE);
 
    if (fp == NULL)
       return;
 
    MDFN_GetFilePathComponents(path, &dir_path);
 
-   while(fgets(linebuf, sizeof(linebuf), fp) != NULL)
+   while(filestream_gets(fp, linebuf, sizeof(linebuf)) != NULL)
    {
       std::string efp;
 
@@ -3783,7 +3857,7 @@ static void ReadM3U(std::vector<std::string> &file_list, std::string path, unsig
    }
 
 end:
-   fclose(fp);
+   filestream_close(fp);
 }
 
 // TODO: LoadCommon()
@@ -3806,7 +3880,7 @@ static bool MDFNI_LoadCD(const char *devicename)
             image_label[0] = '\0';
 
             CDIF *image  = CDIF_Open(
-                  &success, disk_control_ext_info.image_paths[i].c_str(), false, old_cdimagecache);
+                  &success, disk_control_ext_info.image_paths[i].c_str(), false, cdimagecache);
             CDInterfaces.push_back(image);
 
             extract_basename(
@@ -3818,7 +3892,7 @@ static bool MDFNI_LoadCD(const char *devicename)
       else if(devicename && strlen(devicename) > 4 && !strcasecmp(devicename + strlen(devicename) - 4, ".pbp"))
       {
          bool success = true;
-         CDIF *image  = CDIF_Open(&success, devicename, false, old_cdimagecache);
+         CDIF *image  = CDIF_Open(&success, devicename, false, cdimagecache);
          CD_IsPBP     = true;
          CDInterfaces.push_back(image);
 
@@ -3829,7 +3903,9 @@ static bool MDFNI_LoadCD(const char *devicename)
 
          for(unsigned i = 0; i < PBP_PhysicalDiscCount; i++)
          {
-            char image_name[4096];
+            /* image_name is at most 4096 - 4 (removing ".pbp")
+             * gives label room to add index and quiets gcc warnings */
+            char image_name[4092];
             char image_label[4096];
 
             image_name[0]  = '\0';
@@ -3852,7 +3928,7 @@ static bool MDFNI_LoadCD(const char *devicename)
 
          image_label[0] = '\0';
 
-         CDIF *image  = CDIF_Open(&success, devicename, false, old_cdimagecache);
+         CDIF *image  = CDIF_Open(&success, devicename, false, cdimagecache);
          if (!success)
             return false;
 
@@ -3869,6 +3945,7 @@ static bool MDFNI_LoadCD(const char *devicename)
       return false;
    }
 
+#ifdef DEBUG
    // Print out a track list for all discs.
    for(unsigned i = 0; i < CDInterfaces.size(); i++)
    {
@@ -3886,6 +3963,7 @@ static bool MDFNI_LoadCD(const char *devicename)
 
       log_cb(RETRO_LOG_DEBUG, "Leadout: %6d\n", toc.tracks[100].lba);
    }
+#endif
 
    if(!(LoadCD(&CDInterfaces)))
    {
@@ -4043,6 +4121,12 @@ bool retro_load_game(const struct retro_game_info *info)
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(mdec_yuv);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(track_textures);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(dump_textures);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(replace_textures);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(depth);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(wireframe);
@@ -4079,6 +4163,12 @@ bool retro_load_game(const struct retro_game_info *info)
          option_display.key = BEETLE_OPT(msaa);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
          option_display.key = BEETLE_OPT(mdec_yuv);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(track_textures);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(dump_textures);
+         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
+         option_display.key = BEETLE_OPT(replace_textures);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
 
          option_display.key = BEETLE_OPT(image_offset);
@@ -4273,7 +4363,6 @@ void retro_run(void)
          }
          catch (std::exception &e)
          {
-            log_cb(RETRO_LOG_ERROR, "%s\n", e.what());
          }
       }
 
@@ -4301,7 +4390,6 @@ void retro_run(void)
          }
          catch (std::exception &e)
          {
-            log_cb(RETRO_LOG_ERROR, "%s\n", e.what());
          }
       }
    }
@@ -4953,8 +5041,8 @@ const char *MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1)
 
    if (r > 4095)
    {
-      log_cb(RETRO_LOG_ERROR,"MakeFName path longer than 4095\n");
       fullpath[4095] = '\0';
+      log_cb(RETRO_LOG_ERROR,"MakeFName path longer than 4095: %s\n", fullpath);
    }
 
    return fullpath;
