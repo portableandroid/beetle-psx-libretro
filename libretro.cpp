@@ -63,6 +63,7 @@ char CdromId[10] = "";
 extern bool FastSaveStates;
 const int DEFAULT_STATE_SIZE = 16 * 1024 * 1024;
 
+static bool libretro_supports_option_categories = false;
 static bool libretro_supports_bitmasks = false;
 static unsigned libretro_msg_interface_version = 0;
 
@@ -1751,10 +1752,14 @@ int lightrec_init_mmap()
 #endif
 #ifdef HAVE_SHM
 	int memfd;
-	const char *shm_name = "/lightrec_memfd";
+	const char *shm_name = "/lightrec_memfd_beetle";
 
-	memfd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL,
-			S_IRUSR | S_IWUSR);
+	memfd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+
+	if (memfd < 0 && errno == EEXIST) {
+		shm_unlink(shm_name);
+		memfd = shm_open(shm_name, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+	}
 
 	if (memfd < 0) {
 		log_cb(RETRO_LOG_ERROR, "Failed to create SHM: %s\n", strerror(errno));
@@ -3268,17 +3273,35 @@ static void check_variables(bool startup)
             has_new_geometry = true;
          widescreen_hack_aspect_ratio_setting = 1;
       }
-      else if (!strcmp(var.value, "21:9")) // 64:27
+      else if (!strcmp(var.value, "18:9"))
       {
          if (!startup && widescreen_hack_aspect_ratio_setting != 2)
             has_new_geometry = true;
          widescreen_hack_aspect_ratio_setting = 2;
       }
-      else if (!strcmp(var.value, "32:9"))
+      else if (!strcmp(var.value, "19:9"))
       {
          if (!startup && widescreen_hack_aspect_ratio_setting != 3)
             has_new_geometry = true;
          widescreen_hack_aspect_ratio_setting = 3;
+      }
+      else if (!strcmp(var.value, "20:9"))
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 4)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 4;
+      }
+      else if (!strcmp(var.value, "21:9")) // 64:27
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 5)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 5;
+      }
+      else if (!strcmp(var.value, "32:9"))
+      {
+         if (!startup && widescreen_hack_aspect_ratio_setting != 6)
+            has_new_geometry = true;
+         widescreen_hack_aspect_ratio_setting = 6;
       }
    }
    else
@@ -3928,7 +3951,14 @@ static bool MDFNI_LoadCD(const char *devicename)
 
          image_label[0] = '\0';
 
-         CDIF *image  = CDIF_Open(&success, devicename, false, cdimagecache);
+         bool cache = cdimagecache;
+         /* don't precache if physical cdrom, will take way too long and be unresponive */
+         if (cdimagecache && devicename && !strncasecmp(devicename, "cdrom:", 6)) {
+            cache = false;
+            log_cb(RETRO_LOG_INFO, "Skipping Pre-Cache due to using physical media: %s\n", devicename);
+         }
+
+         CDIF *image  = CDIF_Open(&success, devicename, false, cache);
          if (!success)
             return false;
 
@@ -4739,6 +4769,7 @@ void retro_deinit(void)
    log_cb(RETRO_LOG_DEBUG, "[%s]: Estimated FPS: %.5f\n",
          MEDNAFEN_CORE_NAME, (double)video_frames * 44100 / audio_frames);
 
+   libretro_supports_option_categories = false;
    libretro_supports_bitmasks = false;
 }
 
@@ -4762,7 +4793,9 @@ void retro_set_environment(retro_environment_t cb)
    struct retro_vfs_interface_info vfs_iface_info;
    environ_cb = cb;
 
-   libretro_set_core_options(environ_cb);
+   libretro_supports_option_categories = false;
+   libretro_set_core_options(environ_cb,
+           &libretro_supports_option_categories);
 
    vfs_iface_info.required_interface_version = 1;
    vfs_iface_info.iface                      = NULL;
