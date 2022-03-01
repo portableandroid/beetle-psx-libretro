@@ -117,7 +117,8 @@ public:
 		bool is_pal = false;
 		bool is_480i = false;
 		WidthMode width_mode = WidthMode::WIDTH_MODE_320;
-		bool crop_overscan = false;
+		int crop_overscan = 0;
+		unsigned image_crop = 0;
 
 		// Experimental horizontal offset feature
 		int offset_cycles = 0;
@@ -237,7 +238,7 @@ public:
 		render_state.width_mode = width_mode;
 	}
 
-	void set_horizontal_overscan_cropping(bool crop_overscan)
+	void set_horizontal_overscan_cropping(int crop_overscan)
 	{
 		render_state.crop_overscan = crop_overscan;
 	}
@@ -245,6 +246,11 @@ public:
 	void set_horizontal_offset_cycles(int offset_cycles)
 	{
 		render_state.offset_cycles = offset_cycles;
+	}
+	
+	void set_horizontal_additional_cropping(unsigned image_crop)
+	{
+		render_state.image_crop = image_crop;
 	}
 
 	void set_visible_scanlines(int slstart, int slend, int slstart_pal, int slend_pal)

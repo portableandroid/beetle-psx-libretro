@@ -362,10 +362,7 @@ int CDIF_MT::ReadThreadStart()
 
       // Don't read >= the "end" of the disc, silly snake.  Slither.
       if(ra_count && ra_lba == disc_toc.tracks[100].lba)
-      {
          ra_count = 0;
-         //printf("Ephemeral scarabs: %d!\n", ra_lba);
-      }
 
       if(ra_count)
       {
@@ -451,10 +448,7 @@ bool CDIF_MT::ReadRawSector(uint8 *buf, uint32 lba, int64 timeout_us)
    // This shouldn't happen, the emulated-system-specific CDROM emulation code should make sure the emulated program doesn't try
    // to read past the last "real" sector of the disc.
    if(lba >= disc_toc.tracks[100].lba)
-   {
-      printf("Attempt to read LBA %d, >= LBA %d\n", lba, disc_toc.tracks[100].lba);
       return(false);
-   }
 
    ReadThreadQueue.Write(CDIF_Message(CDIF_MSG_READ_SECTOR, lba));
 
@@ -506,7 +500,6 @@ bool CDIF_MT::ReadRawSectorPWOnly(uint8 *buf, uint32 lba, bool hint_fullread)
    // to read past the last "real" sector of the disc.
    if(lba >= disc_toc.tracks[100].lba)
    {
-      printf("Attempt to read LBA %d, >= LBA %d\n", lba, disc_toc.tracks[100].lba);
       memset(buf, 0, 96);
       return(false);
    }
@@ -568,10 +561,7 @@ int CDIF::ReadSector(uint8* pBuf, uint32 lba, uint32 nSectors)
       uint8_t tmpbuf[2352 + 96];
 
       if(!ReadRawSector(tmpbuf, lba))
-      {
-         puts("CDIF Raw Read error");
          return(false);
-      }
 
       if(!ValidateRawSector(tmpbuf))
          return(false);
@@ -590,7 +580,6 @@ int CDIF::ReadSector(uint8* pBuf, uint32 lba, uint32 nSectors)
             memcpy(pBuf, &tmpbuf[12 + 4 + 8], 2048);
             break;
          default:
-            printf("CDIF_ReadSector() invalid sector type at LBA=%u\n", (unsigned int)lba);
             return(false);
       }
 
@@ -605,8 +594,6 @@ int CDIF::ReadSector(uint8* pBuf, uint32 lba, uint32 nSectors)
 
 CDIF_ST::CDIF_ST(CDAccess *cda) : disc_cdaccess(cda)
 {
-   //puts("***WARNING USING SINGLE-THREADED CD READER***");
-
    UnrecoverableError = false;
    DiscEjected = false;
 
@@ -655,7 +642,6 @@ bool CDIF_ST::ReadRawSectorPWOnly(uint8 *buf, uint32 lba, bool hint_fullread)
    // to read past the last "real" sector of the disc.
    if(lba >= disc_toc.tracks[100].lba)
    {
-      printf("Attempt to read LBA %d, >= LBA %d\n", lba, disc_toc.tracks[100].lba);
       memset(buf, 0, 96);
       return(false);
    }

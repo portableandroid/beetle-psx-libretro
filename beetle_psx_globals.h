@@ -23,7 +23,7 @@ extern int line_render_mode;
 extern int filter_mode;
 extern bool opaque_check;
 extern bool semitrans_check;
-extern bool crop_overscan;
+extern int crop_overscan;
 
 enum core_timing_fps_modes
 {
@@ -38,6 +38,7 @@ extern bool interlace_setting_dirty;
 
 extern int aspect_ratio_setting;
 extern bool aspect_ratio_dirty;
+extern bool is_monkey_hero;
 
 #ifdef __cplusplus
 }

@@ -59,8 +59,9 @@ static dither_mode dither_mode = DITHER_NATIVE;
 static bool dump_textures = false;
 static bool replace_textures = false;
 static bool track_textures = false;
-static bool crop_overscan;
+static int crop_overscan;
 static int image_offset_cycles;
+static unsigned image_crop;
 static int initial_scanline;
 static int last_scanline;
 static int initial_scanline_pal;
@@ -248,7 +249,8 @@ void rsx_vulkan_refresh_variables(void)
    unsigned old_msaa = msaa;
    bool old_super_sampling = super_sampling;
    bool old_show_vram = show_vram;
-   bool old_crop_overscan = crop_overscan;
+   int old_crop_overscan = crop_overscan;
+   unsigned old_image_crop = image_crop;
    bool old_widescreen_hack = widescreen_hack;
    unsigned old_widescreen_hack_aspect_ratio_setting = widescreen_hack_aspect_ratio_setting;
    bool visible_scanlines_changed = false;
@@ -342,16 +344,27 @@ void rsx_vulkan_refresh_variables(void)
    var.key = BEETLE_OPT(crop_overscan);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "enabled"))
-         crop_overscan = true;
-      else
-         crop_overscan = false;
+      if (strcmp(var.value, "disabled") == 0)
+         crop_overscan = 0;
+      else if (strcmp(var.value, "static") == 0)
+         crop_overscan = 1;
+      else if (strcmp(var.value, "smart") == 0)
+         crop_overscan = 2;
    }
 
    var.key = BEETLE_OPT(image_offset_cycles);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       image_offset_cycles = atoi(var.value);
+   }
+   
+   var.key = BEETLE_OPT(image_crop);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         image_crop = 0;
+      else
+         image_crop = atoi(var.value);
    }
 
    var.key = BEETLE_OPT(initial_scanline);
@@ -493,6 +506,7 @@ void rsx_vulkan_refresh_variables(void)
         old_msaa != msaa ||
         old_show_vram != show_vram ||
         old_crop_overscan != crop_overscan ||
+        old_image_crop != image_crop ||
         old_widescreen_hack != widescreen_hack ||
         old_widescreen_hack_aspect_ratio_setting != widescreen_hack_aspect_ratio_setting ||
         visible_scanlines_changed)
@@ -559,6 +573,7 @@ void rsx_vulkan_finalize_frame(const void *fb, unsigned width,
    renderer->set_horizontal_overscan_cropping(crop_overscan);
    renderer->set_horizontal_offset_cycles(image_offset_cycles);
    renderer->set_visible_scanlines(initial_scanline, last_scanline, initial_scanline_pal, last_scanline_pal);
+   renderer->set_horizontal_additional_cropping(image_crop);
 
    renderer->set_display_filter(super_sampling ? Renderer::ScanoutFilter::SSAA : Renderer::ScanoutFilter::None);
    if (renderer->get_scanout_mode() == Renderer::ScanoutMode::BGR24)

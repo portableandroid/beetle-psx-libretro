@@ -15,7 +15,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,6 +27,10 @@
 #include <retro_inline.h>
 
 #include "state.h"
+
+#define SSEEK_END	2
+#define SSEEK_CUR	1
+#define SSEEK_SET	0
 
 #define RLSB 		MDFNSTATE_RLSB	/* 0x80000000 */
 
@@ -52,7 +56,7 @@ static INLINE uint32_t MDFN_de32lsb_(const uint8_t *morp)
    return(morp[0]|(morp[1]<<8)|(morp[2]<<16)|(morp[3]<<24));
 }
 
-int32_t smem_read(StateMem *st, void *buffer, uint32_t len)
+static int32_t smem_read(StateMem *st, void *buffer, uint32_t len)
 {
    if ((len + st->loc) > st->len)
       return 0;
@@ -63,7 +67,7 @@ int32_t smem_read(StateMem *st, void *buffer, uint32_t len)
    return(len);
 }
 
-int32_t smem_write(StateMem *st, void *buffer, uint32_t len)
+static int32_t smem_write(StateMem *st, void *buffer, uint32_t len)
 {
    if ((len + st->loc) > st->malloced)
    {
@@ -83,25 +87,17 @@ int32_t smem_write(StateMem *st, void *buffer, uint32_t len)
    return(len);
 }
 
-int32_t smem_putc(StateMem *st, int value)
-{
-   uint8_t tmpval = value;
-   if(smem_write(st, &tmpval, 1) != 1)
-      return -1;
-   return 1;
-}
-
-int32_t smem_seek(StateMem *st, uint32_t offset, int whence)
+static int32_t smem_seek(StateMem *st, uint32_t offset, int whence)
 {
    switch(whence)
    {
-      case SEEK_SET:
+      case SSEEK_SET:
          st->loc = offset;
          break;
-      case SEEK_END:
+      case SSEEK_END:
          st->loc = st->len - offset;
          break;
-      case SEEK_CUR:
+      case SSEEK_CUR:
          st->loc += offset;
          break;
    }
@@ -115,7 +111,7 @@ int32_t smem_seek(StateMem *st, uint32_t offset, int whence)
    return 0;
 }
 
-int smem_write32le(StateMem *st, uint32_t b)
+static int smem_write32le(StateMem *st, uint32_t b)
 {
    uint8_t s[4];
    s[0]=b;
@@ -125,7 +121,7 @@ int smem_write32le(StateMem *st, uint32_t b)
    return((smem_write(st, s, 4)<4)?0:4);
 }
 
-int smem_read32le(StateMem *st, uint32_t *b)
+static int smem_read32le(StateMem *st, uint32_t *b)
 {
    uint8_t s[4];
 
@@ -137,7 +133,7 @@ int smem_read32le(StateMem *st, uint32_t *b)
    return(4);
 }
 
-static bool SubWrite(StateMem *st, SFORMAT *sf, const char *name_prefix)
+static bool SubWrite(StateMem *st, SFORMAT *sf)
 {
    while(sf->size || sf->name)	/* Size can sometimes be zero, so also check for the text name.  These two should both be zero only at the end of a struct. */
    {
@@ -149,7 +145,7 @@ static bool SubWrite(StateMem *st, SFORMAT *sf, const char *name_prefix)
 
       if(sf->size == (uint32_t)~0)		/* Link to another struct.	*/
       {
-         if(!SubWrite(st, (SFORMAT *)sf->v, name_prefix))
+         if(!SubWrite(st, (SFORMAT *)sf->v))
             return(0);
 
          sf++;
@@ -162,16 +158,8 @@ static bool SubWrite(StateMem *st, SFORMAT *sf, const char *name_prefix)
       if (!FastSaveStates)
       {
          char nameo[1 + 256];
-         int slen;
-
-         if (name_prefix)
-            slen       = snprintf(
-                  nameo + 1, 256, "%s%s", name_prefix, sf->name);
-         else
-         {
-            slen       = strlcpy(nameo + 1, sf->name, 255);
-            nameo[256] = 0;
-         }
+         int slen      = strlcpy(nameo + 1, sf->name, 255);
+         nameo[256]    = 0;
          nameo[0]      = slen;
 
          smem_write(st, nameo, 1 + nameo[0]);
@@ -239,14 +227,14 @@ static int WriteStateChunk(StateMem *st, const char *sname, SFORMAT *sf)
 
    data_start_pos = st->loc;
 
-   if(!SubWrite(st, sf, NULL))
+   if(!SubWrite(st, sf))
       return(0);
 
    end_pos = st->loc;
 
-   smem_seek(st, data_start_pos - 4, SEEK_SET);
+   smem_seek(st, data_start_pos - 4, SSEEK_SET);
    smem_write32le(st, end_pos - data_start_pos);
-   smem_seek(st, end_pos, SEEK_SET);
+   smem_seek(st, end_pos, SSEEK_SET);
 
    return(end_pos - data_start_pos);
 }
@@ -284,44 +272,6 @@ static SFORMAT *FindSF(const char *name, SFORMAT *sf)
    }
 
    return NULL;
-}
-
-/* Fast raw chunk reader */
-static void DOReadChunk(StateMem *st, SFORMAT *sf)
-{
-   /* Size can sometimes be zero, so also check for the text name.  
-    * These two should both be zero only at the end of a struct. */
-   while(sf->size || sf->name)       
-   {
-      int32_t bytesize;
-      if(!sf->size || !sf->v)
-      {
-         sf++;
-         continue;
-      }
-
-      /* Link to another SFORMAT struct */
-      if(sf->size == (uint32_t) ~0) 
-      {
-         DOReadChunk(st, (SFORMAT *)sf->v);
-         sf++;
-         continue;
-      }
-
-      bytesize = sf->size;
-
-      /* Loading raw data, bool types are stored as 
-       * they appear in memory, not as single bytes in the full state format.
-       * In the SFORMAT structure, the size member for 
-       * bool entries is the number of bool elements, 
-       * not the total in-memory size,
-       * so we adjust it here. */
-      if(sf->flags & MDFNSTATE_BOOL)
-         bytesize *= sizeof(bool);
-
-      smem_read(st, (uint8_t *)sf->v, bytesize);
-      sf++;
-   }
 }
 
 static int ReadStateChunk(StateMem *st, SFORMAT *sf, int size)
@@ -364,7 +314,7 @@ static int ReadStateChunk(StateMem *st, SFORMAT *sf, int size)
 
          if(recorded_size != expected_size)
          {
-            if(smem_seek(st, recorded_size, SEEK_CUR) < 0)
+            if(smem_seek(st, recorded_size, SSEEK_CUR) < 0)
                return(0);
          }
          else
@@ -393,7 +343,7 @@ static int ReadStateChunk(StateMem *st, SFORMAT *sf, int size)
       }
       else
       {
-         if(smem_seek(st, recorded_size, SEEK_CUR) < 0)
+         if(smem_seek(st, recorded_size, SSEEK_CUR) < 0)
             return(0);
       }
    }
@@ -432,11 +382,11 @@ static int MDFNSS_StateAction_internal(void *st_p, int load, int data_only, stru
          } 
          else
          {
-            if(smem_seek(st, tmp_size, SEEK_CUR) < 0)
+            if(smem_seek(st, tmp_size, SSEEK_CUR) < 0)
                return(0);
          }
       }
-      if(smem_seek(st, -total, SEEK_CUR) < 0)
+      if(smem_seek(st, -total, SSEEK_CUR) < 0)
          return(0);
       if(!found && !section->optional) /* Not found.  We are sad! */
          return(0);
@@ -484,7 +434,7 @@ int MDFNSS_SaveSM(void *st_p, int a, int b, const void *c, const void *d,
       return(0);
 
    sizy = st->loc;
-   smem_seek(st, 16 + 4, SEEK_SET);
+   smem_seek(st, 16 + 4, SSEEK_SET);
    smem_write32le(st, sizy);
 
    return(1);

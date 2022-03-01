@@ -133,6 +133,7 @@ unsigned psx_gpu_overclock_shift = 0;
 #define INTERNAL_FPS_SAMPLE_PERIOD 64
 
 static int psx_skipbios;
+static int override_bios;
 
 bool psx_gte_overclock;
 enum dither_mode psx_gpu_dither_mode;
@@ -175,18 +176,76 @@ static bool firmware_is_present(unsigned region)
 
    /* SHA1 and alternate BIOS names sourced from
    https://github.com/mamedev/mame/blob/master/src/mame/drivers/psx.cpp */
+
+
+   if (override_bios)
+   {
+      if (override_bios == 1)
+      {
+			bios_name_list[0] = "psxonpsp660.bin";
+			bios_name_list[1] = "PSXONPSP660.bin";
+			bios_name_list[2] = NULL;
+			bios_sha1 = "96880D1CA92A016FF054BE5159BB06FE03CB4E14";
+      }
+		
+      else if (override_bios == 2)
+      {
+			bios_name_list[0] = "ps1_rom.bin";
+			bios_name_list[1] = "PS1_ROM.bin";
+			bios_name_list[2] = NULL;
+			bios_sha1 = "C40146361EB8CF670B19FDC9759190257803CAB7";
+      }
+	   
+      size_t i;
+      for (i = 0; i < list_size; ++i)
+      {
+         if (!bios_name_list[i])
+            break;
+
+         int r = snprintf(bios_path, sizeof(bios_path), "%s%c%s", retro_base_directory, retro_slash, bios_name_list[i]);
+         if (r >= 4096)
+         {
+            bios_path[4095] = '\0';
+            log_cb(RETRO_LOG_ERROR, "Firmware path longer than 4095: %s\n", bios_path);
+            break;
+         }
+
+         if (filestream_exists(bios_path))
+         {
+            firmware_found = true;
+            break;
+         }
+      }
+
+      if (firmware_found)
+      {	
+         char obtained_sha1[41];
+         sha1_calculate(bios_path, obtained_sha1);
+         if (strcmp(obtained_sha1, bios_sha1))
+         {
+            log_cb(RETRO_LOG_WARN, "Override firmware found but has invalid SHA1: %s\n", bios_path);
+            log_cb(RETRO_LOG_WARN, "Expected SHA1: %s\n", bios_sha1);
+            log_cb(RETRO_LOG_WARN, "Obtained SHA1: %s\n", obtained_sha1);
+            log_cb(RETRO_LOG_WARN, "Unsupported firmware may cause emulation glitches.\n");
+            return true;
+         }
+
+         log_cb(RETRO_LOG_INFO, "Override firmware found: %s\n", bios_path);
+         log_cb(RETRO_LOG_INFO, "Override firmware SHA1: %s\n", obtained_sha1);
+
+         return true;
+      }
+      log_cb(RETRO_LOG_WARN, "Override firmware is missing: %s\n", bios_name_list[0]);
+      log_cb(RETRO_LOG_WARN, "Fallback to region specific firmware.\n");
+   }
+
+
    if (region == REGION_JP)
    {
       bios_name_list[0] = "scph5500.bin";
       bios_name_list[1] = "SCPH5500.bin";
       bios_name_list[2] = "SCPH-5500.bin";
       bios_name_list[3] = NULL;
-      bios_name_list[4] = NULL;
-      bios_name_list[5] = NULL;
-      bios_name_list[6] = NULL;
-      bios_name_list[7] = NULL;
-      bios_name_list[8] = NULL;
-      bios_name_list[9] = NULL;
       bios_sha1 = "B05DEF971D8EC59F346F2D9AC21FB742E3EB6917";
    }
    else if (region == REGION_NA)
@@ -212,9 +271,6 @@ static bool firmware_is_present(unsigned region)
       bios_name_list[4] = "SCPH5552.bin";
       bios_name_list[5] = "SCPH-5552.bin";
       bios_name_list[6] = NULL;
-      bios_name_list[7] = NULL;
-      bios_name_list[8] = NULL;
-      bios_name_list[9] = NULL;
       bios_sha1 = "F6BC2D1F5EB6593DE7D089C425AC681D6FFFD3F0";
    }
 
@@ -1466,6 +1522,12 @@ static const char *CalcDiscSCEx_BySYSTEMCNF(CDIF *c, unsigned *rr)
                     cb_itf.cb_rom_info_set(NULL, CdromId, 0);
                 }
 #endif
+               if(!strncmp(bootpos + 7, "SLUS_007.65", 11) || !strncmp(bootpos + 7, "SLES_009.79", 11))
+               {
+                  is_monkey_hero = true;
+                  log_cb(RETRO_LOG_INFO, "Monkey Hero FBWrite Tweak Activated\n");
+               }
+
                char *tmp;
 
                if((tmp = strchr(bootpos, '_'))) *tmp = 0;
@@ -1525,7 +1587,7 @@ Breakout:
 static unsigned CalcDiscSCEx(void)
 {
    const char *prev_valid_id = NULL;
-   unsigned ret_region = MDFN_GetSettingI("psx.region_default");
+   unsigned ret_region       = MDFN_GetSettingI("psx.region_default");
 
    cdifs_scex_ids.clear();
 
@@ -1937,7 +1999,7 @@ static void InitCommon(std::vector<CDIF *> *_CDInterfaces, const bool EmulateMem
    PSX_CDC = new PS_CDC();
    PSX_FIO = new FrontIO(emulate_memcard, emulate_multitap);
    PSX_FIO->SetAMCT(MDFN_GetSettingB("psx.input.analog_mode_ct"));
-   for(unsigned i = 0; i < 8; i++)
+   for(unsigned i = 0; i < 2; i++)
    {
       char buf[64];
       snprintf(buf, sizeof(buf), "psx.input.port%u.gun_chairs", i + 1);
@@ -3235,6 +3297,23 @@ static void check_variables(bool startup)
          psx_skipbios = 0;
    }
 
+   var.key = BEETLE_OPT(override_bios);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "disabled"))
+      {
+         override_bios = 0;
+      }
+      else if (!strcmp(var.value, "psxonpsp"))
+	  {
+         override_bios = 1;
+      }
+      else if (!strcmp(var.value, "ps1_rom"))
+      {
+         override_bios = 2;
+      }
+   }
+
    var.key = BEETLE_OPT(widescreen_hack);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
@@ -3582,6 +3661,56 @@ static void check_variables(bool startup)
       }
    }
 
+   var.key = BEETLE_OPT(crosshair_color_p1);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "red") == 0)
+         setting_crosshair_color_p1 = 0xFF0000;
+      else if (strcmp(var.value, "blue") == 0)
+         setting_crosshair_color_p1 = 0x0080FF;
+      else if (strcmp(var.value, "green") == 0)
+         setting_crosshair_color_p1 = 0x00FF00;
+      else if (strcmp(var.value, "orange") == 0)
+         setting_crosshair_color_p1 = 0xFF8000;
+      else if (strcmp(var.value, "yellow") == 0)
+         setting_crosshair_color_p1 = 0xFFFF00;
+      else if (strcmp(var.value, "cyan") == 0)
+         setting_crosshair_color_p1 = 0x00FFFF;
+      else if (strcmp(var.value, "pink") == 0)
+         setting_crosshair_color_p1 = 0xFF00FF;
+      else if (strcmp(var.value, "purple") == 0)
+         setting_crosshair_color_p1 = 0x8000FF;
+      else if (strcmp(var.value, "black") == 0)
+         setting_crosshair_color_p1 = 0x000000;
+      else if (strcmp(var.value, "white") == 0)
+         setting_crosshair_color_p1 = 0xFFFFFF;
+   }
+
+   var.key = BEETLE_OPT(crosshair_color_p2);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "red") == 0)
+         setting_crosshair_color_p2 = 0xFF0000;
+      else if (strcmp(var.value, "blue") == 0)
+         setting_crosshair_color_p2 = 0x0080FF;
+      else if (strcmp(var.value, "green") == 0)
+         setting_crosshair_color_p2 = 0x00FF00;
+      else if (strcmp(var.value, "orange") == 0)
+         setting_crosshair_color_p2 = 0xFF8000;
+      else if (strcmp(var.value, "yellow") == 0)
+         setting_crosshair_color_p2 = 0xFFFF00;
+      else if (strcmp(var.value, "cyan") == 0)
+         setting_crosshair_color_p2 = 0x00FFFF;
+      else if (strcmp(var.value, "pink") == 0)
+         setting_crosshair_color_p2 = 0xFF00FF;
+      else if (strcmp(var.value, "purple") == 0)
+         setting_crosshair_color_p2 = 0x8000FF;
+      else if (strcmp(var.value, "black") == 0)
+         setting_crosshair_color_p2 = 0x000000;
+      else if (strcmp(var.value, "white") == 0)
+         setting_crosshair_color_p2 = 0xFFFFFF;
+   }
+
    var.key = BEETLE_OPT(enable_multitap_port1);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
@@ -3768,17 +3897,18 @@ static void check_variables(bool startup)
    var.key = BEETLE_OPT(crop_overscan);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (strcmp(var.value, "enabled") == 0)
+      int old_crop_overscan = crop_overscan;
+      if (strcmp(var.value, "disabled") == 0)
+         crop_overscan = 0;
+      else if (strcmp(var.value, "static") == 0)
+         crop_overscan = 1;
+      else if (strcmp(var.value, "smart") == 0)
+         crop_overscan = 2;
+
+      if(crop_overscan != old_crop_overscan)
       {
-         if (crop_overscan == false)
-            has_new_geometry = true;
-         crop_overscan = true;
-      }
-      else if (strcmp(var.value, "disabled") == 0)
-      {
-         if (crop_overscan == true)
-            has_new_geometry = true;
-         crop_overscan = false;
+         has_new_geometry = true;
+         old_crop_overscan = crop_overscan;
       }
    }
 
@@ -4203,8 +4333,6 @@ bool retro_load_game(const struct retro_game_info *info)
 
          option_display.key = BEETLE_OPT(image_offset);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-         option_display.key = BEETLE_OPT(image_crop);
-         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
 
          option_display.key = BEETLE_OPT(frame_duping);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
@@ -4222,8 +4350,6 @@ bool retro_load_game(const struct retro_game_info *info)
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
 
          option_display.key = BEETLE_OPT(image_offset);
-         environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
-         option_display.key = BEETLE_OPT(image_crop);
          environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY, &option_display);
 
          break;
@@ -4422,6 +4548,10 @@ void retro_run(void)
          {
          }
       }
+
+      // Update gun crosshair color
+      PSX_FIO->SetCrosshairsColor(0, setting_crosshair_color_p1);
+      PSX_FIO->SetCrosshairsColor(1, setting_crosshair_color_p2);
    }
 
    /* We only start counting after the first frame we encounter. This

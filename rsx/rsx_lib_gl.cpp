@@ -319,11 +319,14 @@ struct GlRenderer {
    /* Display Mode - GP1(08h) */
    enum width_modes curr_width_mode;
 
-   /* When true we perform no horizontal padding */
-   bool crop_overscan;
+   /* When set we perform no horizontal padding */
+   int crop_overscan;
 
    /* Experimental offset feature */
    int32_t image_offset_cycles;
+
+   /* Image Crop option */
+   unsigned image_crop;
 
    /* Scanline core options */
    int32_t initial_scanline;
@@ -1226,13 +1229,15 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    get_variables(&upscaling, &display_vram);
 
    var.key = BEETLE_OPT(crop_overscan);
-   bool crop_overscan = true;
+   int crop_overscan = true;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "enabled"))
-         crop_overscan = true;
-      else if (!strcmp(var.value, "disabled"))
-         crop_overscan = false;
+      if (strcmp(var.value, "disabled") == 0)
+         crop_overscan = 0;
+      else if (strcmp(var.value, "static") == 0)
+         crop_overscan = 1;
+      else if (strcmp(var.value, "smart") == 0)
+         crop_overscan = 2;
    }
 
    int32_t image_offset_cycles = 0;
@@ -1240,6 +1245,16 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       image_offset_cycles = atoi(var.value);
+   }
+
+   unsigned image_crop = 0;
+   var.key = BEETLE_OPT(image_crop);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         image_crop = 0;
+      else
+         image_crop = atoi(var.value);
    }
 
    int32_t initial_scanline = 0;
@@ -1440,6 +1455,7 @@ static bool GlRenderer_new(GlRenderer *renderer, DrawConfig config)
    renderer->internal_color_depth = depth;
    renderer->crop_overscan = crop_overscan;
    renderer->image_offset_cycles = image_offset_cycles;
+   renderer->image_crop = image_crop;
    renderer->curr_width_mode = WIDTH_MODE_320;
    renderer->initial_scanline = initial_scanline;
    renderer->last_scanline = last_scanline;
@@ -1570,10 +1586,16 @@ static GlDisplayRect compute_gl_display_rect(GlRenderer *renderer)
    int32_t x;
    if (renderer->crop_overscan)
    {
-      width = (uint32_t) (2560/clock_div);
+      width = (uint32_t) ((2560/clock_div) - renderer->image_crop);
       int32_t offset_cycles = renderer->image_offset_cycles;
       int32_t h_start = (int32_t) renderer->config.display_area_hrange[0];
-      x = floor((h_start - 608 + offset_cycles) / (double) clock_div);
+      /* Restore old center behaviour is render_state.horiz_start is intentionally very high.
+       * 938 fixes Gunbird (1008) and Mobile Light Force (EU release of Gunbird),
+       * but this value should be lowerer in the future if necessary. */
+      if ((renderer->config.display_area_hrange[0] < 938) && (renderer->crop_overscan == 2))
+          x = floor((offset_cycles / (double) clock_div) - (renderer->image_crop / 2));
+      else
+          x = floor(((h_start - 608 + offset_cycles) / (double) clock_div) - (renderer->image_crop / 2));
    }
    else
    {
@@ -1585,17 +1607,35 @@ static GlDisplayRect compute_gl_display_rect(GlRenderer *renderer)
 
    uint32_t height;
    int32_t y;
-   if (renderer->config.is_pal)
+   if (renderer->crop_overscan == 2)
    {
-      int h = renderer->last_scanline_pal - renderer->initial_scanline_pal + 1;
-      height = (h < 0 ? 0 : (uint32_t) h);
-      y = (308 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline_pal - 287);
+        if (renderer->config.is_pal)
+        {
+            int h = (renderer->config.display_area_vrange[1] - renderer->config.display_area_vrange[0]) - (287 - renderer->last_scanline_pal) - renderer->initial_scanline_pal;
+            height = (h < 0 ? 0 : (uint32_t) h);
+            y = renderer->last_scanline_pal - 287;
+        }
+        else
+        {
+            int h = (renderer->config.display_area_vrange[1] - renderer->config.display_area_vrange[0]) - (239 - renderer->last_scanline) - renderer->initial_scanline;
+            height = (h < 0 ? 0 : (uint32_t) h);
+            y = renderer->last_scanline - 239;
+        }
    }
-   else
+   if (renderer->crop_overscan != 2 || height > (renderer->config.is_pal? 288 : 240))
    {
-      int h = renderer->last_scanline - renderer->initial_scanline + 1;
-      height = (h < 0 ? 0 : (uint32_t) h);
-      y = (256 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline - 239);
+        if (renderer->config.is_pal)
+        {
+            int h = renderer->last_scanline_pal - renderer->initial_scanline_pal + 1;
+            height = (h < 0 ? 0 : (uint32_t) h);
+            y = (308 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline_pal - 287);
+        }
+        else
+        {
+            int h = renderer->last_scanline - renderer->initial_scanline + 1;
+            height = (h < 0 ? 0 : (uint32_t) h);
+            y = (256 - renderer->config.display_area_vrange[1]) + (renderer->last_scanline - 239);
+        }
    }
    height *= (renderer->config.is_480i ? 2 : 1);
    y *= (renderer->config.is_480i ? 2 : 1);
@@ -1705,13 +1745,15 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    get_variables(&upscaling, &display_vram);
 
    var.key = BEETLE_OPT(crop_overscan);
-   bool crop_overscan = true;
+   int crop_overscan = 1;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "enabled"))
-         crop_overscan = true;
-      else if (!strcmp(var.value, "disabled"))
-         crop_overscan = false;
+      if (strcmp(var.value, "disabled") == 0)
+         crop_overscan = 0;
+      else if (strcmp(var.value, "static") == 0)
+         crop_overscan = 1;
+      else if (strcmp(var.value, "smart") == 0)
+         crop_overscan = 2;
    }
 
    int32_t image_offset_cycles;
@@ -1719,6 +1761,16 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       image_offset_cycles = atoi(var.value);
+   }
+   
+   unsigned image_crop;
+   var.key = BEETLE_OPT(image_crop);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "disabled") == 0)
+         image_crop = 0;
+      else
+         image_crop = atoi(var.value);
    }
 
    int32_t initial_scanline = 0;
@@ -1883,6 +1935,7 @@ static bool retro_refresh_variables(GlRenderer *renderer)
    renderer->filter_type            = filter;
    renderer->crop_overscan          = crop_overscan;
    renderer->image_offset_cycles    = image_offset_cycles;
+   renderer->image_crop             = image_crop;
    renderer->initial_scanline       = initial_scanline;
    renderer->last_scanline          = last_scanline;
    renderer->initial_scanline_pal   = initial_scanline_pal;
@@ -2219,7 +2272,7 @@ static struct retro_system_av_info get_av_info(VideoClock std)
    bool widescreen_hack                     = false;
    int widescreen_hack_aspect_ratio_setting = 1;
    bool display_vram                        = false;
-   bool crop_overscan                       = false;
+   int crop_overscan                        = 0;
    int initial_scanline_ntsc                = 0;
    int last_scanline_ntsc                   = 239;
    int initial_scanline_pal                 = 0;
@@ -2261,8 +2314,12 @@ static struct retro_system_av_info get_av_info(VideoClock std)
    var.key = BEETLE_OPT(crop_overscan);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
-      if (!strcmp(var.value, "enabled"))
-         crop_overscan = true;
+      if (strcmp(var.value, "disabled") == 0)
+         crop_overscan = 0;
+      else if (strcmp(var.value, "static") == 0)
+         crop_overscan = 1;
+      else if (strcmp(var.value, "smart") == 0)
+         crop_overscan = 2;
    }
 
    var.key = BEETLE_OPT(initial_scanline);
