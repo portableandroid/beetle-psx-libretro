@@ -30,6 +30,9 @@ retro_input_state_t dbg_input_state_cb = 0;
 
 #include "pgxp/pgxp_main.h"
 
+#if defined(HAVE_ASHMEM) || defined(HAVE_SHM)
+#include <errno.h>
+#endif
 #ifdef PORTANDROID
 #define DEBUG_LEVEL 2
 #define _cb_type_lock_
@@ -121,6 +124,7 @@ int memfd;
 #endif
 
 uint32 EventCycles = 128;
+uint8_t spu_samples = 1;
 
 // CPU overclock factor (or 0 if disabled)
 int32_t psx_overclock_factor = 0;
@@ -133,7 +137,7 @@ unsigned psx_gpu_overclock_shift = 0;
 #define INTERNAL_FPS_SAMPLE_PERIOD 64
 
 static int psx_skipbios;
-static int override_bios;
+static int override_bios = 0;
 
 bool psx_gte_overclock;
 enum dither_mode psx_gpu_dither_mode;
@@ -1396,24 +1400,6 @@ static bool TestMagicCD(std::vector<CDIF *> *_CDInterfaces)
    if(strncmp((char *)buf + 10, "Licensed  by", strlen("Licensed  by")))
       return(false);
 
-   //if(strncmp((char *)buf + 32, "Sony", 4))
-   // return(false);
-
-   //for(int i = 0; i < 2048; i++)
-   // printf("%d, %02x %c\n", i, buf[i], buf[i]);
-   //exit(1);
-
-#if 0
-   {
-      uint8_t buf[2048 * 7];
-
-      if((*cdifs)[0]->ReadSector(buf, 5, 7) == 0x2)
-      {
-         printf("CRC32: 0x%08x\n", (uint32)crc32(0, &buf[0], 0x3278));
-      }
-   }
-#endif
-
    return(true);
 }
 
@@ -1943,6 +1929,30 @@ void lightrec_free_mmap()
 #endif
 }
 #endif /* HAVE_LIGHTREC */
+
+/* LED interface */
+static retro_set_led_state_t led_state_cb = NULL;
+static unsigned int retro_led_state[2] = {0};
+static void retro_led_interface(void)
+{
+   /* 0: Power
+    * 1: CD */
+
+   unsigned int led_state[2] = {0};
+   unsigned int l            = 0;
+
+   led_state[0] = (!Running) ? 1 : 0;
+   led_state[1] = (PSX_CDC->DriveStatus > 0) ? 1 : 0;
+
+   for (l = 0; l < sizeof(led_state)/sizeof(led_state[0]); l++)
+   {
+      if (retro_led_state[l] != led_state[l])
+      {
+         retro_led_state[l] = led_state[l];
+         led_state_cb(l, led_state[l]);
+      }
+   }
+}
 
 /* Forward declarations, required for disk control
  * 'set initial disk' functionality */
@@ -2835,9 +2845,6 @@ static CheatFormatInfoStruct CheatFormatInfo =
 // an emulated GunCon is used.  This IS assuming, of course, that we ever implement save state support so that netplay actually works at all...
 MDFNGI EmulatedPSX =
 {
-   MDFN_MASTERCLOCK_FIXED(33868800),
-   0,
-
    true, // Multires possible?
 
    //
@@ -2852,12 +2859,6 @@ MDFNGI EmulatedPSX =
 
    0,   // Framebuffer width
    0,   // Framebuffer height
-   //
-   //
-   //
-
-   2,     // Number of output sound channels
-
 };
 
 /* end of Mednafen psx.cpp */
@@ -3174,6 +3175,9 @@ static bool shared_memorycards = false;
 static bool has_new_geometry = false;
 static bool has_new_timing = false;
 
+uint8_t analog_combo[2] = {0};
+uint8_t HOLD = {0};
+
 extern void PSXDitherApply(bool);
 
 static void check_variables(bool startup)
@@ -3239,6 +3243,15 @@ static void check_variables(bool startup)
    }
    else
       EventCycles = 128;
+
+   var.key = BEETLE_OPT(dynarec_spu_samples);
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+	spu_samples = atoi(var.value);
+   }
+   else
+      spu_samples = 1;
 #endif
 
    var.key = BEETLE_OPT(cpu_freq_scale);
@@ -3661,6 +3674,89 @@ static void check_variables(bool startup)
       }
    }
 
+   var.key = BEETLE_OPT(analog_toggle_combo);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "l1+l2+r1+r2+start+select") == 0)
+      {
+         analog_combo[0] = 0x09;
+         analog_combo[1] = 0x0f;
+      }
+      else if (strcmp(var.value, "l1+r1+select") == 0)
+      {
+         analog_combo[0] = 0x01;
+         analog_combo[1] = 0x0c;
+      }
+      else if (strcmp(var.value, "l1+r1+start") == 0)
+      {
+         analog_combo[0] = 0x08;
+         analog_combo[1] = 0x0c;
+      }
+      else if (strcmp(var.value, "l1+r1+l3") == 0)
+      {
+         analog_combo[0] = 0x02;
+         analog_combo[1] = 0x0c;
+      }
+      else if (strcmp(var.value, "l1+r1+r3") == 0)
+      {
+         analog_combo[0] = 0x04;
+         analog_combo[1] = 0x0c;
+      }
+      else if (strcmp(var.value, "l2+r2+select") == 0)
+      {
+         analog_combo[0] = 0x01;
+         analog_combo[1] = 0x03;
+      }
+      else if (strcmp(var.value, "l2+r2+start") == 0)
+      {
+         analog_combo[0] = 0x08;
+         analog_combo[1] = 0x03;
+      }
+      else if (strcmp(var.value, "l2+r2+l3") == 0)
+      {
+         analog_combo[0] = 0x02;
+         analog_combo[1] = 0x03;
+      }
+      else if (strcmp(var.value, "l2+r2+r3") == 0)
+      {
+         analog_combo[0] = 0x04;
+         analog_combo[1] = 0x03;
+      }
+      else if (strcmp(var.value, "l3+r3") == 0)
+      {
+         analog_combo[0] = 0x06;
+         analog_combo[1] = 0x00;
+      }
+   }
+
+   var.key = BEETLE_OPT(analog_toggle_hold);
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (strcmp(var.value, "0") == 0)
+      {
+         HOLD = 0;
+      }
+      else if (strcmp(var.value, "1") == 0)
+      {
+         HOLD = 1;
+      }
+      else if (strcmp(var.value, "2") == 0)
+      {
+         HOLD = 2;
+      }
+      else if (strcmp(var.value, "3") == 0)
+      {
+         HOLD = 3;
+      }
+      else if (strcmp(var.value, "4") == 0)
+      {
+         HOLD = 4;
+      }
+      else if (strcmp(var.value, "5") == 0)
+      {
+         HOLD = 5;
+      }
+   }
    var.key = BEETLE_OPT(crosshair_color_p1);
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
@@ -4021,7 +4117,8 @@ static bool MDFNI_LoadCD(const char *devicename)
 
    try
    {
-      if(devicename && strlen(devicename) > 4 && !strcasecmp(devicename + strlen(devicename) - 4, ".m3u"))
+      size_t devicename_len = strlen(devicename);
+      if(devicename && devicename_len > 4 && !strcasecmp(devicename + devicename_len - 4, ".m3u"))
       {
          ReadM3U(disk_control_ext_info.image_paths, devicename);
 
@@ -4042,7 +4139,7 @@ static bool MDFNI_LoadCD(const char *devicename)
             disk_control_ext_info.image_labels.push_back(image_label);
          }
       }
-      else if(devicename && strlen(devicename) > 4 && !strcasecmp(devicename + strlen(devicename) - 4, ".pbp"))
+      else if(devicename && devicename_len > 4 && !strcasecmp(devicename + devicename_len - 4, ".pbp"))
       {
          bool success = true;
          CDIF *image  = CDIF_Open(&success, devicename, false, cdimagecache);
@@ -4151,14 +4248,15 @@ static bool MDFNI_LoadCD(const char *devicename)
 static bool MDFNI_LoadGame(const char *name)
 {
    RFILE *GameFile = NULL;
+   size_t name_len = strlen(name);
 
-   if(strlen(name) > 4 && (
-      !strcasecmp(name + strlen(name) - 4, ".cue") ||
-      !strcasecmp(name + strlen(name) - 4, ".ccd") ||
-      !strcasecmp(name + strlen(name) - 4, ".toc") ||
-      !strcasecmp(name + strlen(name) - 4, ".m3u") ||
-      !strcasecmp(name + strlen(name) - 4, ".chd") ||
-      !strcasecmp(name + strlen(name) - 4, ".pbp")
+   if(name_len > 4 && (
+      !strcasecmp(name + name_len - 4, ".cue") ||
+      !strcasecmp(name + name_len - 4, ".ccd") ||
+      !strcasecmp(name + name_len - 4, ".toc") ||
+      !strcasecmp(name + name_len - 4, ".m3u") ||
+      !strcasecmp(name + name_len - 4, ".chd") ||
+      !strcasecmp(name + name_len - 4, ".pbp")
       ))
     return MDFNI_LoadCD(name);
 
@@ -4608,19 +4706,8 @@ void retro_run(void)
    EmulateSpecStruct spec = {0};
    spec.surface = surf;
    spec.SoundRate = 44100;
-   spec.SoundBuf = NULL;
    spec.LineWidths = rects;
-   spec.SoundBufMaxSize = 0;
-   spec.SoundVolume = 1.0;
-   spec.soundmultiplier = 1.0;
    spec.SoundBufSize = 0;
-   spec.VideoFormatChanged = false;
-   spec.SoundFormatChanged = false;
-
-   //if (disableVideo)
-   //{
-   //   spec.skip = true;
-   //}
 
    EmulateSpecStruct *espec = (EmulateSpecStruct*)&spec;
    /* start of Emulate */
@@ -4634,8 +4721,6 @@ void retro_run(void)
 
    MDFNMP_ApplyPeriodicCheats();
 
-
-   espec->MasterCycles = 0;
    espec->SoundBufSize = 0;
 
    PSX_FIO->UpdateInput();
@@ -4652,8 +4737,6 @@ void retro_run(void)
       PSX_DBG(PSX_DBG_ERROR, "[BUUUUUUUG] Frame timing end glitch; scanline=%u, st=%u\n", GPU_GetScanlineNum(), timestamp);
 #endif
 
-   //printf("scanline=%u, st=%u\n", GPU_GetScanlineNum(), timestamp);
-
    espec->SoundBufSize = IntermediateBufferPos;
    IntermediateBufferPos = 0;
 
@@ -4664,8 +4747,6 @@ void retro_run(void)
    PSX_FIO->ResetTS();
 
    RebaseTS(timestamp);
-
-   espec->MasterCycles = timestamp;
 
    // Save memcards if dirty.
    unsigned players = input_get_player_count();
@@ -4857,6 +4938,10 @@ void retro_run(void)
             MEDNAFEN_CORE_GEOMETRY_MAX_W << (2 + upscale_shift));
    }
 
+   /* LED interface */
+   if (led_state_cb)
+      retro_led_interface();
+
    video_frames++;
    audio_frames += spec.SoundBufSize;
 
@@ -4921,18 +5006,22 @@ unsigned retro_api_version(void)
 void retro_set_environment(retro_environment_t cb)
 {
    struct retro_vfs_interface_info vfs_iface_info;
+   struct retro_led_interface led_interface;
    environ_cb = cb;
 
    libretro_supports_option_categories = false;
-   libretro_set_core_options(environ_cb,
-           &libretro_supports_option_categories);
+   libretro_set_core_options(environ_cb, &libretro_supports_option_categories);
 
-   vfs_iface_info.required_interface_version = 1;
+   vfs_iface_info.required_interface_version = 2;
    vfs_iface_info.iface                      = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
-	   filestream_vfs_init(&vfs_iface_info);
+      filestream_vfs_init(&vfs_iface_info);
 
-	input_set_env( cb );
+   if (environ_cb(RETRO_ENVIRONMENT_GET_LED_INTERFACE, &led_interface))
+      if (led_interface.set_led_state && !led_state_cb)
+         led_state_cb = led_interface.set_led_state;
+
+   input_set_env(cb);
 
    rsx_intf_set_environment(cb);
 }
@@ -5152,7 +5241,7 @@ void retro_cheat_set(unsigned index, bool enabled, const char * codeLine)
             if(!cf->DecodeCheat(std::string(part), &patch))
             {
                //Generate a name
-               sprintf(name,"cheat_%i_%i",index,cursor);
+               snprintf(name, sizeof(name), "cheat_%i_%i",index,cursor);
 
                //Set parameters
                patch.name=(std::string)name;

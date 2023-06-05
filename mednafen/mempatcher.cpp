@@ -15,9 +15,9 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <stdio.h>
 #include <string.h>
 #include <ctype.h>
-#include <errno.h>
 #include <vector>
 
 #ifdef _WIN32
@@ -61,13 +61,9 @@ typedef struct __CHEATF
 #endif
 
 static std::vector<CHEATF> cheats;
-static int savecheats;
-static uint32 resultsbytelen = 1;
-static bool resultsbigendian = 0;
 static bool CheatsActive = true;
 
-bool SubCheatsOn = 0;
-std::vector<SUBCHEAT> SubCheats[8];
+static std::vector<SUBCHEAT> SubCheats[8];
 
 MemoryPatch::MemoryPatch() : addr(0), val(0), compare(0), 
 			     mltpl_count(1), mltpl_addr_inc(0), mltpl_val_inc(0), copy_src_addr(0), copy_src_addr_inc(0),
@@ -85,7 +81,6 @@ static void RebuildSubCheats(void)
 {
  std::vector<CHEATF>::iterator chit;
 
- SubCheatsOn = 0;
  for(int x = 0; x < 8; x++)
   SubCheats[x].clear();
 
@@ -112,7 +107,6 @@ static void RebuildSubCheats(void)
     else
      tmpsub.compare = -1;
     SubCheats[(chit->addr + x) & 0x7].push_back(tmpsub);
-    SubCheatsOn = 1;
    }
   }
  }
@@ -217,8 +211,6 @@ void MDFNI_AddCheat(const MemoryPatch& patch)
 {
  cheats.push_back(patch);
 
- savecheats = true;
-
  MDFNMP_RemoveReadPatches();
  RebuildSubCheats();
  MDFNMP_InstallReadPatches();
@@ -227,8 +219,6 @@ void MDFNI_AddCheat(const MemoryPatch& patch)
 int MDFNI_DelCheat(uint32 which)
 {
  cheats.erase(cheats.begin() + which);
-
- savecheats=1;
 
  MDFNMP_RemoveReadPatches();
  RebuildSubCheats();
@@ -462,7 +452,7 @@ static uint8 CharToNibble(char thechar)
 bool MDFNI_DecodeGBGG(const char *instr, uint32 *a, uint8 *v, uint8 *c, char *type)
 {
  char str[10];
- int len;
+ size_t len;
 
  for(int x = 0; x < 9; x++)
  {
@@ -523,16 +513,11 @@ static int GGtobin(char c)
 /* Returns 1 on success, 0 on failure. Sets *a,*v,*c. */
 int MDFNI_DecodeGG(const char *str, uint32 *a, uint8 *v, uint8 *c, char *type)
 {
-   uint16 A;
-   uint8 V,C;
    uint8 t;
-   int s;
-
-   A=0x8000;
-   V=0;
-   C=0;
-
-   s=strlen(str);
+   uint16 A=0x8000;
+   uint8 V=0;
+   uint8 C=0;
+   size_t s=strlen(str);
    if(s!=6 && s!=8) return(0);
 
    t=GGtobin(*str++);
@@ -616,8 +601,6 @@ void MDFNI_SetCheat(uint32 which, const MemoryPatch& patch)
 {
  cheats[which] = patch;
 
- savecheats = true;
-
  MDFNMP_RemoveReadPatches();
  RebuildSubCheats();
  MDFNMP_InstallReadPatches();
@@ -627,7 +610,6 @@ void MDFNI_SetCheat(uint32 which, const MemoryPatch& patch)
 int MDFNI_ToggleCheat(uint32 which)
 {
  cheats[which].status = !cheats[which].status;
- savecheats = 1;
  RebuildSubCheats();
 
  return(cheats[which].status);

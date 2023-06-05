@@ -1333,14 +1333,8 @@ _emit_code(jit_state_t *_jit)
     struct {
 	jit_node_t	*node;
 	jit_word_t	 word;
-#if DEVEL_DISASSEMBLER
-	jit_word_t	 prevw;
-#endif
 	jit_int32_t	 patch_offset;
     } undo;
-#if DEVEL_DISASSEMBLER
-    jit_word_t		 prevw;
-#endif
 
     _jitc->function = NULL;
 
@@ -1578,17 +1572,10 @@ _emit_code(jit_state_t *_jit)
 		    patch(word, node);					\
 		}							\
 		break
-#if DEVEL_DISASSEMBLER
-    prevw = _jit->pc.w;
-#endif
     for (node = _jitc->head; node; node = node->next) {
 	if (_jit->pc.uc >= _jitc->code.end)
 	    return (NULL);
 
-#if DEVEL_DISASSEMBLER
-	node->offset = (jit_uword_t)_jit->pc.w - (jit_uword_t)prevw;
-	prevw = _jit->pc.w;
-#endif
 	value = jit_classify(node->code);
 	jit_regarg_set(node, value);
 	switch (node->code) {
@@ -2041,9 +2028,6 @@ _emit_code(jit_state_t *_jit)
 		_jitc->function = _jitc->functions.ptr + node->w.w;
 		undo.node = node;
 		undo.word = _jit->pc.w;
-#if DEVEL_DISASSEMBLER
-		undo.prevw = prevw;
-#endif
 		undo.patch_offset = _jitc->patches.offset;
 	    restart_function:
 		_jitc->again = 0;
@@ -2061,9 +2045,6 @@ _emit_code(jit_state_t *_jit)
 		    temp->flag &= ~jit_flag_patch;
 		    node = undo.node;
 		    _jit->pc.w = undo.word;
-#if DEVEL_DISASSEMBLER
-		    prevw = undo.prevw;
-#endif
 		    _jitc->patches.offset = undo.patch_offset;
 		    goto restart_function;
 		}
@@ -2219,6 +2200,7 @@ _emit_stxi_d(jit_state_t *_jit, jit_word_t i0, jit_gpr_t r0, jit_fpr_t r1)
 static void
 _patch(jit_state_t *_jit, jit_word_t instr, jit_node_t *node)
 {
+#ifndef NDEBUG
     jit_int32_t		flag;
 
     assert(node->flag & jit_flag_node);
@@ -2227,6 +2209,7 @@ _patch(jit_state_t *_jit, jit_word_t instr, jit_node_t *node)
     else
 	flag = node->u.n->flag;
     assert(!(flag & jit_flag_patch));
+#endif
     if (_jitc->patches.offset >= _jitc->patches.length) {
 	jit_realloc((jit_pointer_t *)&_jitc->patches.ptr,
 		    _jitc->patches.length * sizeof(jit_patch_t),

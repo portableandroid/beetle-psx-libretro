@@ -1,6 +1,8 @@
 DEBUG = 0
 FRONTEND_SUPPORTS_RGB565 = 1
 HAVE_OPENGL = 0
+GLES = 0
+GLES3 = 0 # HW renderer now supported on GLES3
 HAVE_VULKAN = 0
 HAVE_JIT = 0
 HAVE_CHD = 1
@@ -129,7 +131,7 @@ endif
 else ifeq ($(platform), osx)
    TARGET  := $(TARGET_NAME)_libretro.dylib
    fpic    := -fPIC
-   SHARED  := -dynamiclib
+   SHARED  := -dynamiclib -Wl,-exported_symbols_list,libretro.osx.def
    LDFLAGS += $(PTHREAD_FLAGS)
    FLAGS   += $(PTHREAD_FLAGS)
    ifeq ($(arch),ppc)
@@ -173,6 +175,8 @@ else ifneq (,$(findstring ios,$(platform)))
    endif
    ifeq ($(HAVE_OPENGL),1)
       GL_LIB := -framework OpenGLES
+      GLES = 1
+      GLES3 = 1
    endif
 
    CC = cc -arch $(iarch) -isysroot $(IOSSDK)
@@ -185,7 +189,7 @@ else ifneq (,$(findstring ios,$(platform)))
    endif
    HAVE_LIGHTREC = 0
    LDFLAGS += $(IPHONEMINVER)
-   FLAGS   += $(IPHONEMINVER) -DHAVE_UNISTD_H
+   FLAGS   += $(IPHONEMINVER) -DHAVE_UNISTD_H -DIOS=1
    CC      += $(IPHONEMINVER)
    CXX     += $(IPHONEMINVER)
 
@@ -195,11 +199,19 @@ else ifeq ($(platform), tvos-arm64)
    fpic := -fPIC
    SHARED := -dynamiclib
    HAVE_LIGHTREC = 0
-   FLAGS += -DHAVE_UNISTD_H
+   FLAGS += -DHAVE_UNISTD_H -DIOS=1 -DTVOS=1
 
-ifeq ($(IOSSDK),)
-   IOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
-endif
+   ifeq ($(IOSSDK),)
+      IOSSDK := $(shell xcrun -sdk appletvos -show-sdk-path)
+   endif
+   ifeq ($(HAVE_OPENGL),1)
+      GL_LIB := -framework OpenGLES
+      GLES = 1
+      GLES3 = 1
+   endif
+
+   CC = cc -arch arm64 -isysroot $(IOSSDK)
+   CXX = c++ -arch arm64 -isysroot $(IOSSDK)
 
 # QNX
 else ifeq ($(platform), qnx)
@@ -324,12 +336,18 @@ else ifeq ($(platform), gcw0)
 else ifeq ($(platform), emscripten)
    TARGET  := $(TARGET_NAME)_libretro_$(platform).bc
    fpic    := -fPIC
-   SHARED  := -shared -Wl,--no-undefined -Wl,--version-script=link.T
-   LDFLAGS += $(PTHREAD_FLAGS)
-   STATIC_LINKING = 1
+   FLAGS   += -DEMSCRIPTEN
+   FLAGS   += -msimd128 -ftree-vectorize
+
+   HAVE_OPENGL = 1
+   GLES = 1
+   GLES3 = 1
    HAVE_LIGHTREC = 0
    NEED_THREADING = 0
    HAVE_CDROM = 0
+   THREADED_RECOMPILER = 0
+
+   STATIC_LINKING = 1
 
 # Raspberry Pi 4 in 64bit mode
 else ifeq ($(platform), rpi4_64)
@@ -343,6 +361,7 @@ else ifeq ($(platform), rpi4_64)
    HAVE_LIGHTREC = 1
    FLAGS += -DHAVE_SHM
    GLES = 1
+   GLES3 = 1
    GL_LIB := -lGLESv2
    HAVE_CDROM = 0
 
@@ -437,7 +456,6 @@ else ifneq (,$(findstring windows_msvc2017,$(platform)))
    export LIB := $(LIB);$(WindowsSDKUCRTLibDir);$(WindowsSDKUMLibDir)
    TARGET := $(TARGET_NAME)_libretro.dll
    TARGET_TMP := $(TARGET_NAME)_libretro.lib $(TARGET_NAME)_libretro.pdb $(TARGET_NAME)_libretro.exp
-   PSS_STYLE :=2
    LDFLAGS += -DLL
 
 # Windows
@@ -531,12 +549,9 @@ FLAGS   += $(fpic) $(NEW_GCC_FLAGS)
 FLAGS   += $(INCFLAGS)
 
 FLAGS += $(ENDIANNESS_DEFINES) \
-         -DSIZEOF_DOUBLE=8 \
          $(WARNINGS) \
          -DMEDNAFEN_VERSION=\"0.9.38.6\" \
-         -DPACKAGE=\"mednafen\" \
          -DMEDNAFEN_VERSION_NUMERIC=9386 \
-         -DPSS_STYLE=1 \
          -DMPC_FIXED_POINT \
          $(CORE_DEFINE) \
          -DSTDC_HEADERS \

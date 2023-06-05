@@ -153,11 +153,21 @@ libretro-build-osx-x64:
     - .libretro-osx-x64-make-default
     - .core-defs
 
+libretro-build-osx-x64-hw:
+  extends:
+    - .libretro-osx-x64-make-default
+    - .core-defs-hw
+
 # MacOS ARM 64-bit
 libretro-build-osx-arm64:
   extends:
     - .libretro-osx-arm64-make-default
     - .core-defs
+
+libretro-build-osx-arm64-hw:
+  extends:
+    - .libretro-osx-arm64-make-default
+    - .core-defs-hw
 
 ################################### CELLULAR #################################
 # Android ARMv7a
@@ -214,6 +224,11 @@ libretro-build-ios-arm64:
     - .libretro-ios-arm64-make-default
     - .core-defs
 
+libretro-build-ios-arm64-hw:
+  extends:
+    - .libretro-ios-arm64-make-default
+    - .core-defs-hw
+
 # iOS (armv7) [iOS 9 and up]
 libretro-build-ios9:
   extends:
@@ -225,3 +240,8 @@ libretro-build-tvos-arm64:
   extends:
     - .libretro-tvos-arm64-make-default
     - .core-defs
+
+libretro-build-tvos-arm64-hw:
+  extends:
+    - .libretro-tvos-arm64-make-default
+    - .core-defs-hw

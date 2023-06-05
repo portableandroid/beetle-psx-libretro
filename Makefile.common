@@ -40,11 +40,15 @@ ZLIB_SOURCES_C = \
 		 $(ZLIB_DIR)/zutil.c
 
 ifeq ($(HAVE_OPENGL), 1)
-   ifeq ($(GLES), 1)
+   ifeq ($(GLES3), 1)
+      GLFLAGS  := -DHAVE_OPENGLES -DHAVE_OPENGLES3
+      CFLAGS   += $(GLFLAGS)
+      CXXFLAGS += $(GLFLAGS)
+      SOURCES_C += $(LIBRETRO_COMM_DIR)/glsym/glsym_es3.c
+   else ifeq ($(GLES), 1)
       GLFLAGS  := -DHAVE_OPENGLES -DHAVE_OPENGLES2
       CFLAGS   += $(GLFLAGS)
       CXXFLAGS += $(GLFLAGS)
-
       SOURCES_C += $(LIBRETRO_COMM_DIR)/glsym/glsym_es2.c
    else
       GLFLAGS   := -DHAVE_OPENGL -DCORE
@@ -359,11 +363,9 @@ ifeq ($(HAVE_CHD), 1)
 endif ## ifeq ($(HAVE_CHD), 1)
 
 ifeq ($(HAVE_LIGHTREC), 1)
-   SOURCES_C +=   $(DEPS_DIR)/lightning/lib/jit_disasm.c \
-                  $(DEPS_DIR)/lightning/lib/jit_memory.c \
+   SOURCES_C +=   $(DEPS_DIR)/lightning/lib/jit_memory.c \
                   $(DEPS_DIR)/lightning/lib/jit_names.c \
                   $(DEPS_DIR)/lightning/lib/jit_note.c \
-                  $(DEPS_DIR)/lightning/lib/jit_print.c \
                   $(DEPS_DIR)/lightning/lib/jit_size.c \
                   $(DEPS_DIR)/lightning/lib/lightning.c \
                   $(DEPS_DIR)/lightrec/blockcache.c \

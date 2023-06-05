@@ -59,8 +59,8 @@ struct retro_core_option_v2_category option_cats_us[] = {
    },
    {
       "osd",
-      "Onscreen Notifications",
-      "Change the notifications being shown onscreen."
+      "On-Screen Display",
+      "Change notifications being shown on-screen."
    },
    {
       "input",
@@ -79,7 +79,7 @@ struct retro_core_option_v2_category option_cats_us[] = {
    },
    {
       "hacks",
-      "Emulation hacks",
+      "Emulation Hacks",
       "Change processor overclocking and emulation accuracy settings affecting low-level performance and compatibility."
    },
    { NULL, NULL, NULL },
@@ -386,7 +386,7 @@ struct retro_core_option_v2_definition option_defs_us[] = {
       BEETLE_OPT(analog_toggle),
       "Enable DualShock Analog Mode Toggle",
       NULL,
-      "When the input device type is DualShock, this option allows the emulated DualShock to be toggled between DIGITAL and ANALOG mode like original hardware. When disabled, the DualShock is locked to ANALOG mode and when enabled, the DualShock can be toggled between DIGITAL and ANALOG mode by pressing and holding START+SELECT+L1+L2+R1+R2.",
+      "When the input device type is DualShock, this option allows the emulated DualShock to be toggled between DIGITAL and ANALOG mode like original hardware. When disabled, the DualShock is locked to ANALOG mode and when enabled, the DualShock can be toggled between DIGITAL and ANALOG mode by using the selected buttons combination.",
       NULL,
       "input",
       {
@@ -395,6 +395,46 @@ struct retro_core_option_v2_definition option_defs_us[] = {
          { NULL, NULL },
       },
       "disabled"
+   },
+   {
+      BEETLE_OPT(analog_toggle_combo),
+      "DualShock Analog Mode Combo",
+      NULL,
+      "Choose the buttons combination that will be used to toggle between DIGITAL and ANALOG mode for the emulated DualShock. Only works when 'Enable DualShock Analog Mode Toggle' is enabled.",
+      NULL,
+      "input",
+      {
+         { "l1+l2+r1+r2+start+select", "L1 + L2 + R1 + R2 + Start + Select" },
+         { "l1+r1+select",             "L1 + R1 + Select" },
+         { "l1+r1+start",              "L1 + R1 + Start" },
+         { "l1+r1+l3",                 "L1 + R1 + L3" },
+         { "l1+r1+r3",                 "L1 + R1 + R3" },
+         { "l2+r2+select",             "L2 + R2 + Select" },
+         { "l2+r2+start",              "L2 + R2 + Start" },
+         { "l2+r2+l3",                 "L2 + R2 + L3" },
+         { "l2+r2+r3",                 "L2 + R2 + R3" },
+         { "l3+r3",                    "L3 + R3" },
+         { NULL, NULL },
+      },
+      "l1+r1+select"
+   },
+   {
+      BEETLE_OPT(analog_toggle_hold),
+      "DualShock Analog Mode Combo Hold Delay",
+      NULL,
+      "Sets the hold time for the analog mode combo buttons. Only works when 'Enable DualShock Analog Mode Toggle' is enabled.",
+      NULL,
+      "input",
+      {
+         { "0", "0 Second Delay" },
+         { "1", "1 Second Delay" },
+         { "2", "2 Second Delay" },
+         { "3", "3 Second Delay" },
+         { "4", "4 Second Delay" },
+         { "5", "5 Second Delay" },
+         { NULL, NULL },
+      },
+      "1"
    },
    {
       BEETLE_OPT(enable_multitap_port1),
@@ -1102,13 +1142,13 @@ struct retro_core_option_v2_definition option_defs_us[] = {
    },
    {
       BEETLE_OPT(dynarec_eventcycles),
-      "Dynarec DMA/GPU Event Cycles",
+      "Dynarec DMA/GPU/MDEC/Timer Event Cycles",
       NULL,
-      "Max cycles run by CPU before a GPU or DMA Update is checked, higher number will be faster, has much less impact on beetle interpreter than dynarec.",
+      "Max cycles run by CPU before a GPU/DMA/MDEC/Timer Update is checked, higher number will be faster, has much less impact on beetle interpreter than dynarec.",
       NULL,
-      NULL,
+      "hacks",
       {
-         { "128",  NULL },
+         { "128",  "128 (Default)" },
          { "256",  NULL },
          { "384",  NULL },
          { "512",  NULL },
@@ -1116,9 +1156,32 @@ struct retro_core_option_v2_definition option_defs_us[] = {
          { "768",  NULL },
          { "896",  NULL },
          { "1024",  NULL },
+         { "1152",  NULL },
+         { "1280",  NULL },
+         { "1408",  NULL },
+         { "1536",  NULL },
+         { "1664",  NULL },
+         { "1792",  NULL },
+         { "1920",  NULL },
+         { "2048",  NULL },
          { NULL, NULL },
       },
       "128"
+   },
+   {
+      BEETLE_OPT(dynarec_spu_samples),
+      "Dynarec SPU Samples",
+      NULL,
+      "Max SPU samples to run before a SPU Update is checked, higher number will be faster, but will cause sound glitches in some games with anything other than 1.",
+      NULL,
+      "hacks",
+      {
+         { "1",  "1 (Default)" },
+         { "4",  NULL },
+         { "16",  NULL },
+         { NULL, NULL },
+      },
+      "1"
    },
 #endif
    {
@@ -1658,6 +1721,11 @@ struct retro_core_options_v2 *options_intl[RETRO_LANGUAGE_LAST] = {
    &options_id,      /* RETRO_LANGUAGE_INDONESIAN */
    &options_sv,      /* RETRO_LANGUAGE_SWEDISH */
    &options_uk,      /* RETRO_LANGUAGE_UKRAINIAN */
+   &options_cs,      /* RETRO_LANGUAGE_CZECH */
+   &options_val,     /* RETRO_LANGUAGE_CATALAN_VALENCIA */
+   &options_ca,      /* RETRO_LANGUAGE_CATALAN */
+   &options_en,      /* RETRO_LANGUAGE_BRITISH_ENGLISH */
+   &options_hu,      /* RETRO_LANGUAGE_HUNGARIAN */
 };
 #endif
 

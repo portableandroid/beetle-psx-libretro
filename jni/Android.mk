@@ -10,10 +10,12 @@ NEED_DEINTERLACER        := 1
 NEED_THREADING           := 1
 NEED_TREMOR              := 1
 GLES                     := 0
+GLES3                    := 0
 HAVE_OPENGL              := 0
 HAVE_VULKAN              := 0
 HAVE_CHD                 := 1
 IS_X86                   := 0
+IS_64BIT                 := 0
 FLAGS                    :=
 HAVE_LIGHTREC            := 1
 THREADED_RECOMPILER      := 1
@@ -22,10 +24,17 @@ ifeq ($(TARGET_ARCH),x86)
   IS_X86 := 1
 endif
 
+ifneq (,$(findstring 64,$(TARGET_ARCH)))
+  IS_64BIT := 1
+endif
+
 ifeq ($(HAVE_HW),1)
-  # gles support will not compile
-  #GLES        := 1
-  #HAVE_OPENGL := 1
+  ifeq ($(IS_64BIT),1)
+    HAVE_OPENGL := 1
+    GLES        := 1
+    GLES3       := 1
+    GL_LIB      := -lGLESv3
+  endif
 
   ifneq ($(TARGET_ARCH_ABI),armeabi)
     HAVE_VULKAN := 1
@@ -54,7 +63,7 @@ ifeq ($(HAVE_HW),1)
 				  -I$(CORE_DIR)/parallel-psx/volk
 endif
 
-COREFLAGS := -funroll-loops $(INCFLAGS) -DMEDNAFEN_VERSION=\"0.9.26\" -DMEDNAFEN_VERSION_NUMERIC=926 -DPSS_STYLE=1 -D__LIBRETRO__ -D_LOW_ACCURACY_ -DINLINE="inline" $(FLAGS)
+COREFLAGS := -funroll-loops $(INCFLAGS) -DMEDNAFEN_VERSION=\"0.9.26\" -DMEDNAFEN_VERSION_NUMERIC=926 -D__LIBRETRO__ -D_LOW_ACCURACY_ -DINLINE="inline" $(FLAGS)
 COREFLAGS += -DWANT_PSX_EMU $(GLFLAGS)
 
 GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"
@@ -68,6 +77,6 @@ LOCAL_SRC_FILES    := $(SOURCES_CXX) $(SOURCES_C)
 LOCAL_CFLAGS       := $(COREFLAGS)
 LOCAL_CXXFLAGS     := $(COREFLAGS) -std=c++11
 LOCAL_LDFLAGS      := -Wl,-version-script=$(CORE_DIR)/link.T -ldl
-LOCAL_LDLIBS       := -llog -landroid
+LOCAL_LDLIBS       := -llog -landroid $(GL_LIB)
 LOCAL_CPP_FEATURES := exceptions rtti
 include $(BUILD_SHARED_LIBRARY)
