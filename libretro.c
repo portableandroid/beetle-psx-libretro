@@ -74,6 +74,13 @@ retro_input_state_t dbg_input_state_cb = 0;
 #endif
 #endif
 
+#ifdef PORTANDROID
+#define DEBUG_LEVEL 2
+#define _cb_type_lock_
+#include "emu_retro.h"
+char CdromId[10] = "";
+#endif
+
 //Fast Save States exclude string labels from variables in the savestate, and are at least 20% faster.
 extern bool FastSaveStates;
 
@@ -2250,7 +2257,23 @@ static const char *CalcDiscSCEx_BySYSTEMCNF(CDIF *c, unsigned *rr,
             return NULL;
 
          bootpos += 7;
+#ifdef PORTANDROID
+         if (CdromId[0] == '\0') {
+            int i, j;
+            for (i = 0, j = 0; i < 256; ++i) {
+               if (bootpos[i] == ';' || j >= sizeof(CdromId) - 1)
+                  break;
+               if (isalnum(bootpos[i]))
+                  CdromId[j++] = bootpos[i];
+            }
 
+            if (CdromId[0] == '\0') {
+               strcpy(CdromId, "SLUS99999");
+            }
+
+            cb_itf.cb_rom_info_set(NULL, CdromId, 0);
+         }
+#endif
          if (serial)
             beetle_game_database_normalize_serial(bootpos,
                   serial);
@@ -3252,6 +3275,14 @@ static void InitCommon(const bool EmulateMemcards, const bool WantPIOMem)
     * "1F800XXX" GameShark codes target it. */
    MDFNMP_AddRAM(1024, 0x1F800000, ScratchRAM->data8);
 
+#ifdef PORTANDROID
+   if(cb_settings.bios_path != NULL){
+      BIOSFile      = filestream_open(cb_settings.bios_path,
+                                      RETRO_VFS_FILE_ACCESS_READ,
+                                      RETRO_VFS_FILE_ACCESS_HINT_NONE);
+      printf_1("[%s] Import external bios: %s", __FUNCTION__, cb_settings.bios_path);
+   } else
+#endif
    if(firmware_is_present(region))
    {
       BIOSFile      = filestream_open(bios_path,
@@ -5525,7 +5556,11 @@ static void check_variables(bool startup)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       uint8_t val = var.value[0] - '0';
+#ifdef PORTANDROID
+      if (var.value[1] != 0) //SeekBar just pass the value without unit
+#else
       if (var.value[1] != 'x')
+#endif
       {
          val  = (var.value[0] - '0') * 10;
          val += var.value[1] - '0';
@@ -6556,9 +6591,11 @@ void retro_run(void)
 
    espec = (EmulateSpecStruct*)&spec;
    /* start of Emulate */
-
+#ifdef PORTANDROID
+   espec->skip = cb_context.video_skip;
+#else
    espec->skip = false;
-
+#endif
    MDFNMP_ApplyPeriodicCheats();
 
    espec->SoundBufSize = 0;
@@ -6666,8 +6703,11 @@ void retro_run(void)
    width         = rects[0];
    height        = spec.DisplayRect.h;
    upscale_shift = GPU_get_upscale_shift();
-
+#ifdef PORTANDROID
+   if (rhi_intf_is_type() == RHI_SOFTWARE && !cb_context.video_skip)
+#else
    if (rhi_intf_is_type() == RHI_SOFTWARE)
+#endif
    {
 #ifdef NEED_DEINTERLACER
       if (spec.InterlaceOn)
@@ -7285,11 +7325,19 @@ void MDFN_MakeFName(MakeFName_Type type, int id1, const char *cd1,
    switch (type)
    {
       case MDFNMKF_SAV:
+#ifdef PORTANDROID
+         r = snprintf(out, outlen, "%s%c%s%s",
+                      retro_save_directory,
+                      retro_slash,
+                      shared_memorycards ? "beetle_memory_card" : retro_cd_base_name,
+                      cd1);
+#else
          r = snprintf(out, outlen, "%s%c%s.%s",
                retro_save_directory,
                retro_slash,
                shared_memorycards ? "mednafen_psx_libretro_shared" : retro_cd_base_name,
                cd1);
+#endif
          break;
       case MDFNMKF_FIRMWARE:
          r = snprintf(out, outlen, "%s%c%s",

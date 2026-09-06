@@ -2278,11 +2278,12 @@ static INLINE void libretro_set_core_options(retro_environment_t environ_cb,
                {
                   if (values[num_values].value)
                   {
+                  #ifndef PORTANDROID
                      /* Check if this is the default value */
                      if (default_value)
                         if (strcmp(values[num_values].value, default_value) == 0)
                            default_index = num_values;
-
+                  #endif
                      buf_len += strlen(values[num_values].value);
                      num_values++;
                   }
